@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Patch NetherSX2/AetherSX2 APK to add 0.25x resolution scale multiplier."""
+"""Patch NetherSX2/AetherSX2 APK to add 0.05x, 0.1x, and 0.25x resolution scale multipliers."""
 from __future__ import annotations
 
 import argparse
@@ -16,30 +16,57 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent
 BUNDLED_LIB_DIR = REPO_ROOT / "decomp/lib"
 
-LOCALE_ENTRY_MAP = {
-    "values": "0.25x Native",
-    "values-ar-rSA": "0.25x الدقة",
-    "values-ckb-rIR": "0.25x کوالێتی گرافیک",
-    "values-es-rES": "0.25x Nativo",
-    "values-fil-rPH": "0.25x Neytib",
-    "values-fr-rFR": "0.25x Natif",
-    "values-hu-rHU": "Natív 0.25x",
-    "values-in-rID": "0.25x Resolusi",
-    "values-it-rIT": "0.25x Nativo",
-    "values-ko-rKR": "0.25x",
-    "values-nl-rNL": "0.25x Origineel",
-    "values-pt-rBR": "0,25x Nativa",
-    "values-pt-rPT": "0.25x Nativo",
-    "values-ru-rRU": "0.25x нативное",
-    "values-sk-rSK": "0,25x natívne",
-    "values-th-rTH": "0.25x จากความละเอียดดั้งเดิม (~120p)",
-    "values-zh-rCN": "0.25倍原生",
-    "values-zh-rTW": "0.25x 原生",
+SCALES = [
+    {"value": "0.050000", "scale": "0.05", "p_label": "~24p"},
+    {"value": "0.100000", "scale": "0.1", "p_label": "~48p"},
+    {"value": "0.250000", "scale": "0.25", "p_label": "~120p"},
+]
+
+LOCALE_TEMPLATES = {
+    "values": "{s}x Native",
+    "values-ar-rSA": "{s}x الدقة",
+    "values-ckb-rIR": "{s}x کوالێتی گرافیک",
+    "values-es-rES": "{s}x Nativo",
+    "values-fil-rPH": "{s}x Neytib",
+    "values-fr-rFR": "{s}x Natif",
+    "values-hu-rHU": "Natív {s}x",
+    "values-in-rID": "{s}x Resolusi",
+    "values-it-rIT": "{s}x Nativo",
+    "values-ko-rKR": "{s}x",
+    "values-nl-rNL": "{s}x Origineel",
+    "values-pt-rBR": "{s_comma}x Nativa",
+    "values-pt-rPT": "{s}x Nativo",
+    "values-ru-rRU": "{s}x нативное",
+    "values-sk-rSK": "{s_comma}x natívne",
+    "values-th-rTH": "{s}x จากความละเอียดดั้งเดิม",
+    "values-zh-rCN": "{s}倍原生",
+    "values-zh-rTW": "{s}x 原生",
 }
+
+
+def get_entry_label(folder_name: str, s: str, p_label: str, sample_first: str) -> str:
+    s_comma = s.replace(".", ",")
+    has_p = "(~240p)" in sample_first
+    tmpl = LOCALE_TEMPLATES.get(folder_name)
+    if tmpl:
+        base = tmpl.format(s=s, s_comma=s_comma)
+        if has_p:
+            base += f" ({p_label})"
+        return base
+    if "0.5" in sample_first:
+        label = sample_first.replace("0.5", s)
+        if has_p:
+            label = label.replace("~240p", p_label)
+        return label
+    elif "0,5" in sample_first:
+        label = sample_first.replace("0,5", s_comma)
+        return label
+    return f"{s}x Native" + (f" ({p_label})" if has_p else "")
 
 
 def patch_arrays(res_dir: Path) -> int:
     modified_files = 0
+    scale_values_set = {s["value"] for s in SCALES}
 
     for arrays_path in sorted(res_dir.glob("values*/arrays.xml")):
         tree = ET.parse(arrays_path)
@@ -49,40 +76,42 @@ def patch_arrays(res_dir: Path) -> int:
 
         # Patch gs_upscale_values in res/values/arrays.xml
         for sa in root.findall("./string-array[@name='gs_upscale_values']"):
-            items = [item.text for item in sa.findall("item")]
-            if items and "0.250000" not in items:
+            for item in list(sa):
+                if item.text in scale_values_set:
+                    sa.remove(item)
+            for i, s in enumerate(SCALES):
                 new_item = ET.Element("item")
-                new_item.text = "0.250000"
-                sa.insert(0, new_item)
-                changed = True
+                new_item.text = s["value"]
+                sa.insert(i, new_item)
+            changed = True
 
         # Patch gs_upscale_entries in res/values/arrays.xml and all localized folders
         for sa in root.findall("./string-array[@name='gs_upscale_entries']"):
-            items = [item.text for item in sa.findall("item")]
-            if items and not any("0.25" in (t or "") for t in items):
-                label = LOCALE_ENTRY_MAP.get(folder_name)
-                if not label:
-                    first = items[0] or ""
-                    if "0.5" in first:
-                        label = first.replace("0.5", "0.25").replace("~240p", "~120p")
-                    elif "0,5" in first:
-                        label = first.replace("0,5", "0,25")
-                    elif "0 5" in first:
-                        label = first.replace("0 5", "0.25")
-                    else:
-                        label = "0.25x Native"
+            sample_first = ""
+            for item in list(sa):
+                t = item.text or ""
+                if not any(k in t for k in ["0.05", "0,05", "0.1", "0,1", "0.25", "0,25"]):
+                    sample_first = t
+                    break
 
+            for item in list(sa):
+                t = item.text or ""
+                if any(k in t for k in ["0.05", "0,05", "0.1", "0,1", "0.25", "0,25"]):
+                    sa.remove(item)
+
+            for i, s in enumerate(SCALES):
+                label = get_entry_label(folder_name, s["scale"], s["p_label"], sample_first)
                 new_item = ET.Element("item")
                 new_item.text = label
-                sa.insert(0, new_item)
-                changed = True
+                sa.insert(i, new_item)
+            changed = True
 
         if changed:
             # Preserve indent formatting
             ET.indent(tree, space="    ")
             tree.write(arrays_path, encoding="utf-8", xml_declaration=True)
             modified_files += 1
-            print(f"Patched resolution scale multiplier in {arrays_path.relative_to(res_dir)}")
+            print(f"Patched resolution scale multipliers in {arrays_path.relative_to(res_dir)}")
 
     return modified_files
 
@@ -92,7 +121,7 @@ def patch_decoded_dir(decoded_dir: Path) -> int:
     if not res_dir.exists():
         raise SystemExit(f"res directory not found in {decoded_dir}")
     modified_count = patch_arrays(res_dir)
-    print(f"Patched 0.25x scale multiplier in {modified_count} array files.")
+    print(f"Patched resolution scale multipliers in {modified_count} array files.")
     return modified_count
 
 

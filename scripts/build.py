@@ -204,7 +204,7 @@ def inject_scale_multiplier(input_apk: Path, output_apk: Path, work_name: str, i
     for res_dir in work_dir.rglob("res"):
         if res_dir.is_dir():
             modified += patch_arrays(res_dir)
-    print(f"Patched 0.25x scale in {modified} arrays.xml files inside {work_name}")
+    print(f"Patched resolution scales (0.05x, 0.1x, 0.25x) in {modified} arrays.xml files inside {work_name}")
 
     # Rebuild with APKEditor (preserves original resource IDs)
     raw_rebuilt = REPO_ROOT / f"{work_name}_rebuilt.apk"
@@ -287,15 +287,16 @@ def verify_all() -> None:
             raise SystemExit(f"Missing output APK: {apk}")
         with zipfile.ZipFile(apk) as z:
             arsc = z.read("resources.arsc")
-            if b"0.250000" not in arsc or b"0.25" not in arsc:
-                raise SystemExit(f"ERROR: 0.25x render option missing in {apk.name}!")
+            for scale_val in [b"0.050000", b"0.100000", b"0.250000"]:
+                if scale_val not in arsc:
+                    raise SystemExit(f"ERROR: {scale_val.decode()} render option missing in {apk.name}!")
             custom_buttons = [n for n in z.namelist() if n.endswith(".png") and "ic_controller_" in n]
             if custom_buttons:
                 raise SystemExit(f"ERROR: Custom controller buttons still found in {apk.name}: {custom_buttons}")
             xml_buttons = [n for n in z.namelist() if n.startswith("res/drawable/ic_controller_") and n.endswith(".xml")]
             if len(xml_buttons) != 34:
                 raise SystemExit(f"ERROR: Expected 34 original controller XML buttons, found {len(xml_buttons)} in {apk.name}!")
-        print(f"✓ {apk.name}: 0.25x confirmed & original controller XML buttons verified (no custom PNGs)")
+        print(f"✓ {apk.name}: 0.05x, 0.1x, 0.25x confirmed & original controller XML buttons verified (no custom PNGs)")
 
     if not ADRENO_FINAL_XDELTA.exists() or ADRENO_FINAL_XDELTA.stat().st_size == 0:
         raise SystemExit(f"Missing or empty xdelta: {ADRENO_FINAL_XDELTA}")
