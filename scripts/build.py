@@ -234,6 +234,44 @@ def apply_mali_optimizations(work_dir: Path) -> None:
         if update_preference_xml(p, sys_updates):
             print(f"  ✓ Configured MTVU, Performance Core Affinity, and FastCDVD in {p.name}")
 
+    # Customize Setup Wizard and Settings to clearly label Fast Mode (Mali Edition)
+    import hashlib
+    import zlib
+
+    str_updated = 0
+    for p in work_dir.rglob("strings.xml"):
+        text = p.read_text(encoding="utf-8")
+        original = text
+        parent = p.parent.name
+        if "values-in" in parent:
+            text = re.sub(r'(<string name="setup_wizard_safe_defaults">)[^<]+(</string>)', r'\g<1>Mode Cepat (Edisi Mali)\g<2>', text)
+            text = re.sub(r'(<string name="setup_wizard_safe_defaults_summary">)[^<]+(</string>)', r'\g<1>Dioptimalkan untuk GPU Mali (Vulkan, Matikan Readback, Presentasi Berulir, MTVU, Afinitas Core Kinerja).\g<2>', text)
+            text = re.sub(r'(<string name="setup_wizard_settings_message">)[^<]+(</string>)', r'\g<1>Silakan pilih preset kinerja untuk digunakan. Untuk GPU Mali (mis. Mali-G57 MC2), pilih Mode Cepat (Edisi Mali) untuk rendering Vulkan yang dioptimalkan, tanpa lag TBDR tile flush, presentasi berulir, dan afinitas core kinerja CPU. Anda dapat mengatur ulang profil kapan saja di Pengaturan Aplikasi.\g<2>', text)
+            text = re.sub(r'(<string name="settings_reset_to_fast_defaults">)[^<]+(</string>)', r'\g<1>Atur Ulang ke Default Cepat (Edisi Mali)\g<2>', text)
+        else:
+            text = re.sub(r'(<string name="setup_wizard_safe_defaults">)[^<]+(</string>)', r'\g<1>Fast Mode (Mali Edition)\g<2>', text)
+            text = re.sub(r'(<string name="setup_wizard_safe_defaults_summary">)[^<]+(</string>)', r'\g<1>Optimized for Mali GPUs (Vulkan, Disabled Readbacks, Threaded Presentation, MTVU, Performance Core Affinity).\g<2>', text)
+            text = re.sub(r'(<string name="setup_wizard_settings_message">)[^<]+(</string>)', r'\g<1>Please select a performance preset to use. For Mali GPUs (e.g. Mali-G57 MC2), select Fast Mode (Mali Edition) for preconfigured Vulkan rendering, eliminated TBDR tile flush stalls, threaded presentation, and performance-core CPU affinity. You can change this profile at any time in App Settings.\g<2>', text)
+            text = re.sub(r'(<string name="settings_reset_to_fast_defaults">)[^<]+(</string>)', r'\g<1>Reset To Fast Defaults (Mali Edition)\g<2>', text)
+        if text != original:
+            p.write_text(text, encoding="utf-8")
+            str_updated += 1
+    print(f"  ✓ Updated Setup Wizard & Settings to 'Fast Mode (Mali Edition)' in {str_updated} strings.xml files")
+
+    # Patch classes.dex so Setup Wizard selects Fast Mode (Mali Edition) by default
+    dex_target = b"\x1a\x0e\x96\x15\x1a\x00\x5b\x24"      # getString("UI/PerformancePreset", "safe")
+    dex_replacement = b"\x1a\x0e\x96\x15\x1a\x00\x16\x29" # getString("UI/PerformancePreset", "unsafe")
+    for dex_path in work_dir.rglob("classes*.dex"):
+        dex_data = bytearray(dex_path.read_bytes())
+        if dex_target in dex_data:
+            idx = dex_data.index(dex_target)
+            dex_data[idx:idx+len(dex_target)] = dex_replacement
+            # Recompute DEX SHA-1 signature and Adler32 checksum
+            dex_data[12:32] = hashlib.sha1(dex_data[32:]).digest()
+            dex_data[8:12] = (zlib.adler32(dex_data[12:]) & 0xffffffff).to_bytes(4, "little")
+            dex_path.write_bytes(dex_data)
+            print(f"  ✓ Patched {dex_path.name} to default Setup Wizard preset to 'Fast Mode (Mali Edition)'")
+
 
 def inject_scale_multiplier(input_apk: Path, output_apk: Path, work_name: str, is_mali: bool = False) -> None:
     work_dir = REPO_ROOT / work_name
@@ -355,6 +393,8 @@ def verify_all() -> None:
             xml_buttons = [n for n in z.namelist() if n.startswith("res/drawable/ic_controller_") and n.endswith(".xml")]
             if len(xml_buttons) != 34:
                 raise SystemExit(f"ERROR: Expected 34 original controller XML buttons, found {len(xml_buttons)} in {apk.name}!")
+            if apk == MALI_FINAL_APK and b"Fast Mode (Mali Edition)" not in arsc:
+                raise SystemExit(f"ERROR: 'Fast Mode (Mali Edition)' missing in {apk.name} resources.arsc!")
         print(f"✓ {apk.name}: 0.05x, 0.1x, 0.25x (XML + unclamped libemucore.so) & original controller XML buttons verified")
 
     if not ADRENO_FINAL_XDELTA.exists() or ADRENO_FINAL_XDELTA.stat().st_size == 0:
