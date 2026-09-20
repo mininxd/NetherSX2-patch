@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build NetherSX2 APK and generate nethersx2.xdelta."""
+"""Build NetherSX2 Adreno and Mali APKs with 0.25x resolution scale and generate xdelta."""
 from __future__ import annotations
 
 import hashlib
@@ -13,35 +13,31 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DECOMP_LIB = REPO_ROOT / "decomp" / "lib"
-APK_URL = "https://github.com/Trixarian/NetherSX2-patch/releases/download/0.0/15210-v1.5-4248.apk"
-APK_MD5 = "c98b0e4152d3b02fbfb9f62581abada5"
-BASE_APK = REPO_ROOT / "15210-v1.5-4248.apk"
-WORK_DIR = REPO_ROOT / "4248"
-UNSIGNED_APK = REPO_ROOT / "unsigned.apk"
-ALIGNED_APK = REPO_ROOT / "aligned.apk"
-FINAL_APK = REPO_ROOT / "nethersx2.apk"
-FINAL_XDELTA = REPO_ROOT / "nethersx2.xdelta"
+PATCHES_DIR = REPO_ROOT / "patches"
 
-# libemucore.so binary patches
-EMUCORE_PATCHES = {
-    0x838560: bytes.fromhex("66000014"),  # Signature check 1
-    0x83B324: bytes.fromhex("62000014"),  # Signature check 2
-    0x829248: bytes.fromhex("35008052"),  # BIOS type check
-    0x81b264: bytes.fromhex("04000014"),  # Scarface RetroAchievements hash check
-}
+# Adreno paths
+ADRENO_SRC_APK = REPO_ROOT / "apk" / "xyz.aethersx2.android_v1.5-4248_adreno.apk"
+ADRENO_FALLBACK_APK = REPO_ROOT / "15210-v1.5-4248.apk"
+ADRENO_URL = "https://github.com/Trixarian/NetherSX2-patch/releases/download/0.0/15210-v1.5-4248.apk"
+ADRENO_MD5 = "c98b0e4152d3b02fbfb9f62581abada5"
+ADRENO_NETHERSX2_XDELTA = REPO_ROOT / "old" / "scripts" / "builder" / "lib" / "nethersx2.xdelta"
+ADRENO_FINAL_APK = REPO_ROOT / "xyz.aethersx2.android_adreno.apk"
+ADRENO_FINAL_XDELTA = REPO_ROOT / "xyz.aethersx2.android_.xdelta"
 
-# classes.dex binary patches
-DEX_PATCHES = {
-    0x222264: bytes.fromhex("0e00"),      # Disable ads
-    0x3C5B70: bytes.fromhex("0e00"),      # Disable ads
-    0x3BDAA4: bytes.fromhex("1211"),      # Restore launcher support
-    0x3BDAAA: bytes.fromhex("04"),
-    0x3BDAAD: bytes.fromhex("05"),
-    0x3BDAB2: bytes.fromhex("15"),
-    0x3BDAA6: bytes.fromhex("6e10930202000c037120b3901300"),
-    0x3BDAB4: bytes([0] * 36),
-    0x8: bytes.fromhex("dda2213a"),       # Checksum
-}
+# Mali paths
+MALI_SRC_APK = REPO_ROOT / "apk" / "xyz.aethersx2.android_v1.5-3668_mali.apk"
+MALI_FALLBACK_APK = REPO_ROOT / "13930-v1.5-3668.apk"
+MALI_URL = "https://github.com/Trixarian/NetherSX2-classic/releases/download/0.0/13930-v1.5-3668.apk"
+MALI_MD5 = "4a1751fa99bc4dcd647114c4d64e7985"
+MALI_CLASSIC_XDELTA_URL = "https://github.com/Trixarian/NetherSX2-classic/releases/download/1.0/nethersx2-classic.xdelta"
+MALI_CLASSIC_XDELTA = REPO_ROOT / "nethersx2-classic.xdelta"
+MALI_FINAL_APK = REPO_ROOT / "xyz.aethersx2.android_mali.apk"
+
+# Tools
+APKEDITOR_JAR = DECOMP_LIB / "APKEditor.jar"
+APKEDITOR_URL = "https://github.com/REAndroid/APKEditor/releases/download/V1.4.9/APKEditor-1.4.9.jar"
+APKSIGNER_JAR = DECOMP_LIB / "apksigner.jar"
+KEYSTORE = DECOMP_LIB / "android.jks"
 
 
 def run_cmd(cmd: list[str]) -> None:
@@ -49,147 +45,18 @@ def run_cmd(cmd: list[str]) -> None:
     subprocess.run(cmd, check=True)
 
 
-def download_base_apk() -> None:
-    if BASE_APK.exists():
-        md5 = hashlib.md5(BASE_APK.read_bytes()).hexdigest()
-        if md5 == APK_MD5:
-            print("Found valid base APK:", BASE_APK)
-            return
-        print("Existing base APK MD5 mismatch, re-downloading...")
-        BASE_APK.unlink()
-
-    print(f"Downloading base APK from {APK_URL}...")
-    urllib.request.urlretrieve(APK_URL, BASE_APK)
-    md5 = hashlib.md5(BASE_APK.read_bytes()).hexdigest()
-    if md5 != APK_MD5:
-        raise SystemExit(f"Downloaded APK MD5 mismatch: expected {APK_MD5}, got {md5}")
-    print("Base APK verified successfully.")
+def get_xdelta_bin() -> str:
+    xdelta_bin = shutil.which("xdelta3") or shutil.which("xdelta")
+    if not xdelta_bin:
+        raise SystemExit("xdelta3 executable not found")
+    return xdelta_bin
 
 
-def decompile_apk() -> None:
-    if WORK_DIR.exists():
-        shutil.rmtree(WORK_DIR)
-    apktool_jar = DECOMP_LIB / "apktool.jar"
-    run_cmd(["java", "-jar", str(apktool_jar), "d", "-s", "-f", "-o", str(WORK_DIR), str(BASE_APK)])
-
-
-def patch_manifest_and_layout() -> None:
-    manifest_path = WORK_DIR / "AndroidManifest.xml"
-    layout_path = WORK_DIR / "res" / "layout" / "activity_main.xml"
-
-    xml_bin = "xmlstarlet" if shutil.which("xmlstarlet") else "xml"
-    if not shutil.which(xml_bin):
-        raise SystemExit("xmlstarlet (or xml) executable not found")
-
-    # Manifest cleanup
-    run_cmd([
-        xml_bin, "ed", "-L",
-        "-d", "manifest/uses-permission[@android:name='android.permission.ACCESS_NETWORK_STATE' or @android:name='com.google.android.gms.permission.AD_ID' or @android:name='android.permission.WAKE_LOCK' or @android:name='android.permission.FOREGROUND_SERVICE']",
-        "-d", "manifest/queries",
-        "-d", "manifest/application/service",
-        "-d", "manifest/application/receiver",
-        "-d", "manifest/application/meta-data[@android:name='com.google.android.gms.ads.APPLICATION_ID' or @android:name='com.google.android.gms.version']",
-        "-d", "manifest/application/provider/meta-data[@android:name='androidx.work.WorkManagerInitializer']",
-        "-d", "manifest/application/activity[@android:name='com.google.android.gms.ads.AdActivity' or @android:name='com.google.android.gms.version' or @android:name='com.google.android.gms.common.api.GoogleApiActivity' or @android:name='com.google.android.gms.ads.OutOfContextTestingActivity']",
-        "-d", "manifest/application/provider[@android:name='com.google.android.gms.ads.MobileAdsInitProvider']",
-        "-d", "manifest/application/activity/@android:preferMinimalPostProcessing",
-        "-d", "manifest/application/@android:extractNativeLibs",
-        "-u", "manifest/application/@android:label", "-v", "NetherSX2",
-        "-u", "manifest/application/activity[@android:label='AetherSX2']/@android:label", "-v", "NetherSX2",
-        str(manifest_path),
-    ])
-
-    # Layout cleanup
-    run_cmd([
-        xml_bin, "ed", "-L",
-        "-d", "androidx.drawerlayout.widget.DrawerLayout/androidx.coordinatorlayout.widget.CoordinatorLayout/RelativeLayout/FrameLayout/@android:layout_above",
-        "-a", "androidx.drawerlayout.widget.DrawerLayout/androidx.coordinatorlayout.widget.CoordinatorLayout/RelativeLayout/FrameLayout", "-t", "attr", "-n", "android:layout_alignParentBottom", "-v", "true",
-        "-d", "androidx.drawerlayout.widget.DrawerLayout/androidx.coordinatorlayout.widget.CoordinatorLayout/RelativeLayout/com.google.android.gms.ads.AdView",
-        "-u", "androidx.drawerlayout.widget.DrawerLayout/androidx.coordinatorlayout.widget.CoordinatorLayout/com.google.android.material.floatingactionbutton.FloatingActionButton/@android:layout_marginBottom", "-v", "16.0dip",
-        str(layout_path),
-    ])
-
-
-def patch_scale_multiplier() -> None:
-    # Use our standalone patch_scale_multiplier module
-    sys.path.insert(0, str(REPO_ROOT / "patches"))
-    import patch_scale_multiplier
-    patch_scale_multiplier.patch_decoded_dir(WORK_DIR)
-
-
-def patch_binary_file(path: Path, patches: dict[int, bytes]) -> None:
-    if not path.exists():
-        raise SystemExit(f"Binary file not found: {path}")
-    data = bytearray(path.read_bytes())
-    for offset, replacement in patches.items():
-        data[offset : offset + len(replacement)] = replacement
-    path.write_bytes(data)
-    print(f"Patched {len(patches)} byte blocks in {path}")
-
-
-def patch_binaries() -> None:
-    patch_binary_file(WORK_DIR / "lib" / "arm64-v8a" / "libemucore.so", EMUCORE_PATCHES)
-    patch_binary_file(WORK_DIR / "classes.dex", DEX_PATCHES)
-
-
-def update_assets() -> None:
-    dest_assets = WORK_DIR / "assets"
-    dest_assets.mkdir(parents=True, exist_ok=True)
-
-    # GameIndex
-    merged_gameindex = REPO_ROOT / "GameIndex[merged].yaml"
-    converted_gameindex = REPO_ROOT / "GameIndex[converted].yaml"
-    if merged_gameindex.exists():
-        shutil.copyfile(merged_gameindex, dest_assets / "GameIndex.yaml")
-        print("Copied GameIndex[merged].yaml to assets/GameIndex.yaml")
-    elif converted_gameindex.exists():
-        shutil.copyfile(converted_gameindex, dest_assets / "GameIndex.yaml")
-        print("Copied GameIndex[converted].yaml to assets/GameIndex.yaml")
-
-    # Other repo assets
-    src_assets = REPO_ROOT / "assets"
-    if src_assets.exists():
-        for asset in src_assets.glob("*"):
-            if asset.is_file():
-                shutil.copyfile(asset, dest_assets / asset.name)
-                print(f"Copied {asset.name} to assets/")
-
-    # Touchscreen theme drawables
-    theme_drawables = REPO_ROOT / "old" / "scripts" / "theme" / "res" / "drawable"
-    dest_drawables = WORK_DIR / "res" / "drawable"
-    if theme_drawables.exists() and dest_drawables.exists():
-        for png in theme_drawables.glob("*.png"):
-            shutil.copyfile(png, dest_drawables / png.name)
-            xml_counterpart = dest_drawables / f"{png.stem}.xml"
-            if xml_counterpart.exists():
-                xml_counterpart.unlink()
-
-
-def rebuild_and_sign() -> None:
-    apktool_jar = DECOMP_LIB / "apktool.jar"
-    apksigner_jar = DECOMP_LIB / "apksigner.jar"
-    keystore = DECOMP_LIB / "android.jks"
-
-    run_cmd(["java", "-jar", str(apktool_jar), "b", "--use-aapt2", "-o", str(UNSIGNED_APK), str(WORK_DIR)])
-
-    # Zipalign
-    if shutil.which("zipalign"):
-        run_cmd(["zipalign", "-f", "-v", "4", str(UNSIGNED_APK), str(ALIGNED_APK)])
-    else:
-        align_apk(UNSIGNED_APK, ALIGNED_APK)
-
-    # Sign
-    run_cmd([
-        "java", "-jar", str(apksigner_jar),
-        "sign",
-        "--ks", str(keystore),
-        "--ks-pass", "pass:android_sign",
-        "--key-pass", "pass:android_sign_alias",
-        "--out", str(FINAL_APK),
-        str(ALIGNED_APK),
-    ])
-    run_cmd(["java", "-jar", str(apksigner_jar), "verify", "--verbose", str(FINAL_APK)])
-    print("NetherSX2 APK successfully built and signed:", FINAL_APK)
+def ensure_apkeditor() -> Path:
+    if not APKEDITOR_JAR.exists():
+        print(f"Downloading APKEditor from {APKEDITOR_URL}...")
+        urllib.request.urlretrieve(APKEDITOR_URL, APKEDITOR_JAR)
+    return APKEDITOR_JAR
 
 
 def align_apk(input_apk: Path, output_apk: Path, alignment: int = 4) -> None:
@@ -221,29 +88,166 @@ def align_apk(input_apk: Path, output_apk: Path, alignment: int = 4) -> None:
             zout.writestr(info, data)
 
 
-def generate_xdelta() -> None:
-    if FINAL_XDELTA.exists():
-        FINAL_XDELTA.unlink()
-    xdelta_bin = shutil.which("xdelta3") or shutil.which("xdelta")
-    if not xdelta_bin:
-        raise SystemExit("xdelta3 executable not found")
+def zipalign_apk(input_apk: Path, output_apk: Path) -> None:
+    if shutil.which("zipalign"):
+        run_cmd(["zipalign", "-f", "-p", "4", str(input_apk), str(output_apk)])
+    else:
+        align_apk(input_apk, output_apk)
 
-    run_cmd([xdelta_bin, "-e", "-f", "-s", str(BASE_APK), str(FINAL_APK), str(FINAL_XDELTA)])
-    if not FINAL_XDELTA.exists() or FINAL_XDELTA.stat().st_size == 0:
-        raise SystemExit("Failed to create nethersx2.xdelta")
-    print(f"Successfully generated {FINAL_XDELTA} ({FINAL_XDELTA.stat().st_size} bytes)")
+
+def sign_apk(unsigned_apk: Path, signed_apk: Path) -> None:
+    run_cmd([
+        "java", "-jar", str(APKSIGNER_JAR),
+        "sign",
+        "--ks", str(KEYSTORE),
+        "--ks-pass", "pass:android_sign",
+        "--key-pass", "pass:android_sign_alias",
+        "--out", str(signed_apk),
+        str(unsigned_apk),
+    ])
+    run_cmd(["java", "-jar", str(APKSIGNER_JAR), "verify", "--verbose", str(signed_apk)])
+
+
+def get_adreno_base_apk() -> Path:
+    if ADRENO_SRC_APK.exists():
+        md5 = hashlib.md5(ADRENO_SRC_APK.read_bytes()).hexdigest()
+        if md5 == ADRENO_MD5:
+            return ADRENO_SRC_APK
+    if ADRENO_FALLBACK_APK.exists():
+        md5 = hashlib.md5(ADRENO_FALLBACK_APK.read_bytes()).hexdigest()
+        if md5 == ADRENO_MD5:
+            return ADRENO_FALLBACK_APK
+
+    print(f"Downloading Adreno base APK from {ADRENO_URL}...")
+    urllib.request.urlretrieve(ADRENO_URL, ADRENO_FALLBACK_APK)
+    return ADRENO_FALLBACK_APK
+
+
+def get_mali_base_apk() -> Path:
+    if MALI_SRC_APK.exists():
+        md5 = hashlib.md5(MALI_SRC_APK.read_bytes()).hexdigest()
+        if md5 == MALI_MD5:
+            return MALI_SRC_APK
+    if MALI_FALLBACK_APK.exists():
+        md5 = hashlib.md5(MALI_FALLBACK_APK.read_bytes()).hexdigest()
+        if md5 == MALI_MD5:
+            return MALI_FALLBACK_APK
+
+    print(f"Downloading Mali base APK from {MALI_URL}...")
+    urllib.request.urlretrieve(MALI_URL, MALI_FALLBACK_APK)
+    return MALI_FALLBACK_APK
+
+
+def inject_scale_multiplier(input_apk: Path, output_apk: Path, work_name: str) -> None:
+    work_dir = REPO_ROOT / work_name
+    if work_dir.exists():
+        shutil.rmtree(work_dir)
+
+    apkeditor = ensure_apkeditor()
+    # Decode with -dex so classes.dex and native libraries are kept raw and resource IDs are preserved
+    run_cmd(["java", "-jar", str(apkeditor), "d", "-dex", "-f", "-i", str(input_apk), "-o", str(work_dir)])
+
+    # Patch resolution scale multiplier in arrays.xml
+    sys.path.insert(0, str(PATCHES_DIR))
+    import patch_scale_multiplier
+    modified = patch_scale_multiplier.patch_arrays(work_dir / "res")
+    print(f"Patched 0.25x scale in {modified} arrays.xml files inside {work_name}")
+
+    # Rebuild with APKEditor (preserves original resource IDs)
+    raw_rebuilt = REPO_ROOT / f"{work_name}_rebuilt.apk"
+    run_cmd(["java", "-jar", str(apkeditor), "b", "-f", "-i", str(work_dir), "-o", str(raw_rebuilt)])
+
+    # Zipalign
+    aligned = REPO_ROOT / f"{work_name}_aligned.apk"
+    zipalign_apk(raw_rebuilt, aligned)
+
+    # Sign
+    sign_apk(aligned, output_apk)
+
+    # Cleanup temporary files
+    shutil.rmtree(work_dir, ignore_errors=True)
+    if raw_rebuilt.exists():
+        raw_rebuilt.unlink()
+    if aligned.exists():
+        aligned.unlink()
+
+
+def build_adreno() -> None:
+    print("\n==========================================")
+    print("Building NetherSX2 Adreno (v1.5-4248) APK")
+    print("==========================================")
+    base_apk = get_adreno_base_apk()
+    xdelta_bin = get_xdelta_bin()
+
+    if not ADRENO_NETHERSX2_XDELTA.exists():
+        raise SystemExit(f"Adreno NetherSX2 xdelta patch not found: {ADRENO_NETHERSX2_XDELTA}")
+
+    adreno_nethersx2_base = REPO_ROOT / "adreno_nethersx2_base.apk"
+    # Apply official NetherSX2 4248 patch
+    run_cmd([xdelta_bin, "-d", "-f", "-s", str(base_apk), str(ADRENO_NETHERSX2_XDELTA), str(adreno_nethersx2_base)])
+
+    # Inject 0.25x scale multiplier and sign
+    inject_scale_multiplier(adreno_nethersx2_base, ADRENO_FINAL_APK, "work_adreno")
+    if adreno_nethersx2_base.exists():
+        adreno_nethersx2_base.unlink()
+
+    # Also keep nethersx2.apk for compatibility
+    shutil.copyfile(ADRENO_FINAL_APK, REPO_ROOT / "nethersx2.apk")
+
+    # Generate xdelta against base Adreno APK
+    if ADRENO_FINAL_XDELTA.exists():
+        ADRENO_FINAL_XDELTA.unlink()
+    run_cmd([xdelta_bin, "-e", "-f", "-s", str(base_apk), str(ADRENO_FINAL_APK), str(ADRENO_FINAL_XDELTA)])
+    shutil.copyfile(ADRENO_FINAL_XDELTA, REPO_ROOT / "nethersx2.xdelta")
+    print(f"Generated {ADRENO_FINAL_XDELTA} ({ADRENO_FINAL_XDELTA.stat().st_size} bytes)")
+
+
+def build_mali() -> None:
+    print("\n==========================================")
+    print("Building NetherSX2 Mali (v1.5-3668) APK")
+    print("==========================================")
+    base_apk = get_mali_base_apk()
+    xdelta_bin = get_xdelta_bin()
+
+    # Ensure classic xdelta is downloaded
+    if not MALI_CLASSIC_XDELTA.exists():
+        print(f"Downloading NetherSX2 classic xdelta from {MALI_CLASSIC_XDELTA_URL}...")
+        urllib.request.urlretrieve(MALI_CLASSIC_XDELTA_URL, MALI_CLASSIC_XDELTA)
+
+    mali_nethersx2_base = REPO_ROOT / "mali_nethersx2_base.apk"
+    # Apply NetherSX2 Classic 3668 patch
+    run_cmd([xdelta_bin, "-d", "-f", "-s", str(base_apk), str(MALI_CLASSIC_XDELTA), str(mali_nethersx2_base)])
+
+    # Inject 0.25x scale multiplier and sign
+    inject_scale_multiplier(mali_nethersx2_base, MALI_FINAL_APK, "work_mali")
+    if mali_nethersx2_base.exists():
+        mali_nethersx2_base.unlink()
+    print(f"Successfully built {MALI_FINAL_APK}")
+
+
+def verify_all() -> None:
+    print("\n==========================================")
+    print("Verifying built artifacts...")
+    print("==========================================")
+    for apk in [ADRENO_FINAL_APK, MALI_FINAL_APK]:
+        if not apk.exists():
+            raise SystemExit(f"Missing output APK: {apk}")
+        with zipfile.ZipFile(apk) as z:
+            arsc = z.read("resources.arsc")
+            if b"0.250000" not in arsc or b"0.25" not in arsc:
+                raise SystemExit(f"ERROR: 0.25x render option missing in {apk.name}!")
+        print(f"✓ {apk.name}: 0.25x scale multiplier confirmed in resources.arsc")
+
+    if not ADRENO_FINAL_XDELTA.exists() or ADRENO_FINAL_XDELTA.stat().st_size == 0:
+        raise SystemExit(f"Missing or empty xdelta: {ADRENO_FINAL_XDELTA}")
+    print(f"✓ {ADRENO_FINAL_XDELTA.name} confirmed ({ADRENO_FINAL_XDELTA.stat().st_size} bytes)")
+    print("\nAll builds and verifications completed successfully!")
 
 
 def main() -> None:
-    download_base_apk()
-    decompile_apk()
-    patch_manifest_and_layout()
-    patch_scale_multiplier()
-    patch_binaries()
-    update_assets()
-    rebuild_and_sign()
-    generate_xdelta()
-    print("Build complete!")
+    build_adreno()
+    build_mali()
+    verify_all()
 
 
 if __name__ == "__main__":

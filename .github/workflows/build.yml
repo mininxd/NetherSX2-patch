@@ -29,32 +29,10 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y xdelta3 xmlstarlet zipalign
+          sudo apt-get install -y xdelta3 zipalign
 
-      - name: Build NetherSX2 and generate xdelta
-        run: |
-          cp apk/xyz.aethersx2.android_v1.5-4248_adreno.apk 15210-v1.5-4248.apk
-          python3 scripts/build.py
-
-      - name: Patch APKs with xdelta
-        run: |
-          cp nethersx2.xdelta xyz.aethersx2.android_.xdelta
-
-          # Patch Adreno APK
-          echo "Patching Adreno APK with xdelta..."
-          xdelta3 -d -f -s apk/xyz.aethersx2.android_v1.5-4248_adreno.apk xyz.aethersx2.android_.xdelta xyz.aethersx2.android_adreno.apk
-
-          # Patch Mali APK with xdelta
-          echo "Patching Mali APK with xdelta..."
-          if ! xdelta3 -d -f -s apk/xyz.aethersx2.android_v1.5-3668_mali.apk xyz.aethersx2.android_.xdelta xyz.aethersx2.android_mali.apk 2>/dev/null; then
-            echo "Applying 3668 classic xdelta for Mali APK..."
-            curl -sL -o /tmp/classic.xdelta https://github.com/Trixarian/NetherSX2-classic/releases/download/1.0/nethersx2-classic.xdelta
-            xdelta3 -d -f -s apk/xyz.aethersx2.android_v1.5-3668_mali.apk /tmp/classic.xdelta xyz.aethersx2.android_mali.apk
-          fi
-
-          # Verify and ensure APK signatures
-          java -jar decomp/lib/apksigner.jar verify xyz.aethersx2.android_adreno.apk || java -jar decomp/lib/apksigner.jar sign --ks decomp/lib/android.jks --ks-pass pass:android_sign --key-pass pass:android_sign_alias xyz.aethersx2.android_adreno.apk
-          java -jar decomp/lib/apksigner.jar verify xyz.aethersx2.android_mali.apk || java -jar decomp/lib/apksigner.jar sign --ks decomp/lib/android.jks --ks-pass pass:android_sign --key-pass pass:android_sign_alias xyz.aethersx2.android_mali.apk
+      - name: Build NetherSX2 and Patch APKs
+        run: python3 scripts/build.py
 
       - name: Upload Adreno APK
         uses: actions/upload-artifact@v4
