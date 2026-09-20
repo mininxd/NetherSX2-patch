@@ -161,24 +161,52 @@ def remove_custom_controller_buttons(work_dir: Path) -> None:
 
 
 def apply_mali_optimizations(work_dir: Path) -> None:
-    print("Applying exclusive Mali GPU performance optimizations...")
+    print("Applying exclusive Mali GPU core, rendering, and CPU-affinity performance optimizations...")
     import re
 
-    def update_tag(match: re.Match) -> str:
-        tag = match.group(0)
-        if "EmuCore/GS/Renderer" in tag:
-            tag = re.sub(r'app:defaultValue="[^"]*"', 'app:defaultValue="14"', tag)
-        if "EmuCore/GS/ThreadedPresentation" in tag:
-            tag = re.sub(r'app:defaultValue="[^"]*"', 'app:defaultValue="true"', tag)
-        return tag
+    def update_preference_xml(file_path: Path, updates: dict[str, str]) -> int:
+        if not file_path.exists():
+            return 0
+        text = file_path.read_text(encoding="utf-8")
+        original = text
+        for key, new_val in updates.items():
+            def replace_default(m: re.Match) -> str:
+                tag = m.group(0)
+                if "app:defaultValue=" in tag:
+                    return re.sub(r'app:defaultValue="[^"]*"', f'app:defaultValue="{new_val}"', tag)
+                else:
+                    return tag[:-1].rstrip() + f' app:defaultValue="{new_val}">' if tag.endswith(">") else tag
 
-    pattern = re.compile(r"<[^>]+EmuCore/GS/(?:Renderer|ThreadedPresentation)[^>]*>", re.DOTALL)
-    for xml_file in work_dir.rglob("graphics_preferences.xml"):
-        text = xml_file.read_text(encoding="utf-8")
-        new_text = pattern.sub(update_tag, text)
-        if new_text != text:
-            xml_file.write_text(new_text, encoding="utf-8")
-            print(f"Configured Vulkan (14) and Threaded Presentation (true) defaults in {xml_file.name}")
+            pattern = re.compile(rf'<[^>]+app:key="{re.escape(key)}"[^>]*>', re.DOTALL)
+            text = pattern.sub(replace_default, text)
+        if text != original:
+            file_path.write_text(text, encoding="utf-8")
+            return 1
+        return 0
+
+    gfx_updates = {
+        "EmuCore/GS/Renderer": "14",               # Default to Vulkan backend
+        "EmuCore/GS/ThreadedPresentation": "true",  # Decouple frame presentation thread
+    }
+    adv_updates = {
+        "EmuCore/GS/DisableDualSourceBlend": "true", # Fix Mali driver dual-source blending bottlenecks
+        "EmuCore/GS/SkipDuplicateFrames": "true",    # Conserve tile memory bandwidth on Mali TBDR
+    }
+    sys_updates = {
+        "EmuCore/Speedhacks/vuThread": "true",        # MTVU (Multi-Threaded VU1) for 8-core Mali SoCs
+        "EmuCore/AffinityControlMode": "7",           # Bind emulation threads to Performance Cores
+        "EmuCore/Speedhacks/fastCDVD": "true",        # Fast CDVD read speeds
+    }
+
+    for p in work_dir.rglob("graphics_preferences.xml"):
+        if update_preference_xml(p, gfx_updates):
+            print(f"  ✓ Configured Vulkan (14) and Threaded Presentation in {p.name}")
+    for p in work_dir.rglob("advanced_preferences.xml"):
+        if update_preference_xml(p, adv_updates):
+            print(f"  ✓ Configured DisableDualSourceBlend and SkipDuplicateFrames in {p.name}")
+    for p in work_dir.rglob("system_preferences.xml"):
+        if update_preference_xml(p, sys_updates):
+            print(f"  ✓ Configured MTVU, Performance Core Affinity, and FastCDVD in {p.name}")
 
 
 def inject_scale_multiplier(input_apk: Path, output_apk: Path, work_name: str, is_mali: bool = False) -> None:
