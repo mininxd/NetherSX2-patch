@@ -190,9 +190,11 @@ def apply_mali_optimizations(work_dir: Path) -> None:
         return 0
 
     gfx_updates = {
-        "EmuCore/GS/Renderer": "14",               # Default to Vulkan backend (direct command buffer on Mali)
-        "EmuCore/GS/ThreadedPresentation": "true",  # Decouple frame presentation thread
-        "EmuCore/GS/HWDownloadMode": "1",          # Disable Readbacks (eliminates TBDR tile flush stalls on Mali-G57)
+        "EmuCore/GS/Renderer": "14",                 # Default to Vulkan backend (direct command buffer on Mali)
+        "EmuCore/GS/ThreadedPresentation": "true",    # Decouple frame presentation thread
+        "EmuCore/GS/HWDownloadMode": "1",            # Disable Readbacks (eliminates light occlusion & TBDR tile flush stalls)
+        "EmuCore/GS/accurate_blending_unit": "0",    # Minimum Blending Accuracy (eliminates multi-pass light/sun/bloom lag)
+        "EmuCore/GS/texture_preloading": "2",        # Full Texture Hash Cache (keeps decoded textures resident in RAM)
     }
     adv_updates = {
         "EmuCore/GS/DisableDualSourceBlend": "true", # Fix Mali driver dual-source blending bottlenecks
@@ -225,10 +227,14 @@ def apply_mali_optimizations(work_dir: Path) -> None:
 
     for p in work_dir.rglob("graphics_preferences.xml"):
         if update_preference_xml(p, gfx_updates):
-            print(f"  ✓ Configured Vulkan (14), Threaded Presentation, and HWDownloadMode (1) in {p.name}")
+            print(f"  ✓ Configured Vulkan (14), Threaded Presentation, HWDownloadMode (1), Blending Accuracy (0 - Minimum), and Texture Preloading (2 - Full) in {p.name}")
     for p in work_dir.rglob("graphics_game_settings_preferences.xml"):
-        if update_preference_xml(p, {"EmuCore/GS/HWDownloadMode": "1"}):
-            print(f"  ✓ Defaulted HWDownloadMode (1 - Disable Readbacks) in {p.name}")
+        if update_preference_xml(p, {
+            "EmuCore/GS/HWDownloadMode": "1",
+            "EmuCore/GS/accurate_blending_unit": "0",
+            "EmuCore/GS/texture_preloading": "2",
+        }):
+            print(f"  ✓ Defaulted HWDownloadMode (1), Blending Accuracy (0), and Texture Preload (2) in {p.name}")
     for p in work_dir.rglob("advanced_preferences.xml"):
         if update_preference_xml(p, adv_updates):
             print(f"  ✓ Configured DisableDualSourceBlend and SkipDuplicateFrames in {p.name}")
@@ -248,19 +254,47 @@ def apply_mali_optimizations(work_dir: Path) -> None:
             str_updated += 1
     print(f"  ✓ Updated Setup Wizard preset button to 'Fast(Mali)/Unsafe Defaults' in {str_updated} strings.xml files")
 
-    # Patch classes.dex so Setup Wizard selects Fast(Mali)/Unsafe Defaults by default
+    # Patch classes.dex:
+    # 1. Setup Wizard selects Fast(Mali)/Unsafe Defaults by default ("safe" -> "unsafe")
+    # 2. Setup Wizard defaults Renderer to Vulkan ("14") instead of OpenGL ("12")
     dex_target = b"\x1a\x0e\x96\x15\x1a\x00\x5b\x24"      # getString("UI/PerformancePreset", "safe")
     dex_replacement = b"\x1a\x0e\x96\x15\x1a\x00\x16\x29" # getString("UI/PerformancePreset", "unsafe")
+    str_12_target = b"00000\x00\x0212\x00\r3rdparty.h"
+    str_14_replacement = b"00000\x00\x0214\x00\r3rdparty.h"
+
     for dex_path in work_dir.rglob("classes*.dex"):
         dex_data = bytearray(dex_path.read_bytes())
+        dex_modified = False
         if dex_target in dex_data:
             idx = dex_data.index(dex_target)
             dex_data[idx:idx+len(dex_target)] = dex_replacement
+            dex_modified = True
+            print(f"  ✓ Patched {dex_path.name} to default Setup Wizard preset to 'Fast(Mali)/Unsafe Defaults'")
+
+        if str_12_target in dex_data:
+            idx = dex_data.index(str_12_target)
+            dex_data[idx:idx+len(str_12_target)] = str_14_replacement
+            dex_modified = True
+            print(f"  ✓ Patched {dex_path.name} Setup Wizard default Renderer to Vulkan (14)")
+
+        if dex_modified:
             # Recompute DEX SHA-1 signature and Adler32 checksum
             dex_data[12:32] = hashlib.sha1(dex_data[32:]).digest()
             dex_data[8:12] = (zlib.adler32(dex_data[12:]) & 0xffffffff).to_bytes(4, "little")
             dex_path.write_bytes(dex_data)
-            print(f"  ✓ Patched {dex_path.name} to default Setup Wizard preset to 'Fast(Mali)/Unsafe Defaults'")
+
+    # Patch NativeLibrary.setDefaultSettings in libemucore.so:
+    # When 'unsafe' preset is applied, set HWDownloadMode to '1' (Disable Readbacks - Unsynchronized)
+    # instead of '2' (Synchronize GS Thread)
+    so_pattern = bytes.fromhex("82c7ff9042541591e00313aae10314aae30316aa00013fd6")
+    so_replacement = bytes.fromhex("82c7ff9042541591e00313aae10314aae30317aa00013fd6")
+    for so_path in work_dir.rglob("libemucore.so"):
+        so_data = bytearray(so_path.read_bytes())
+        if so_pattern in so_data:
+            idx = so_data.index(so_pattern)
+            so_data[idx:idx+len(so_pattern)] = so_replacement
+            so_path.write_bytes(so_data)
+            print(f"  ✓ Patched {so_path.name} setDefaultSettings to set HWDownloadMode=1 (Unsynchronized)")
 
 
 def patch_gameindex(work_dir: Path) -> None:
@@ -307,10 +341,15 @@ def patch_gameindex(work_dir: Path) -> None:
             pattern_dh = rf"({s}:.*?\n\s*name:\s*[\"\x27]Downhill Domination.*?autoFlush:\s*)1"
             text = re.sub(pattern_dh, r"\g<1>0", text, flags=re.DOTALL)
 
+        # Disable autoFlush for Tales of the Abyss
+        for s in ["SCAJ-20163", "SLUS-21386"]:
+            pattern_tales = rf"({s}:.*?\n\s*name:\s*[\"\x27]Tales of the Abyss.*?autoFlush:\s*)1"
+            text = re.sub(pattern_tales, r"\g<1>0", text, flags=re.DOTALL)
+
         if text != orig:
             p.write_text(text, encoding="utf-8")
             gi_updated += 1
-    print(f"  ✓ Patched GameIndex.yaml (optimized Black & Downhill Domination in {gi_updated} files)")
+    print(f"  ✓ Patched GameIndex.yaml (optimized Black, Downhill Domination, and Tales of the Abyss in {gi_updated} files)")
 
 
 def inject_scale_multiplier(input_apk: Path, output_apk: Path, work_name: str, is_mali: bool = False) -> None:

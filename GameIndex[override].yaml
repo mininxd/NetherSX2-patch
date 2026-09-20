@@ -95,7 +95,7 @@ SCAJ-20163:
   compat: 5
   gsHWFixes:
     halfPixelOffset: 2 # Fixes ghosting.
-    autoFlush: 1 # Fixes post lighting.
+    autoFlush: 0 # Fixes post lighting.
   patches:
     default:
       content: |-
@@ -314,7 +314,7 @@ SLUS-21386:
   compat: 5
   gsHWFixes:
     halfPixelOffset: 2 # Fixes ghosting.
-    autoFlush: 1 # Fixes post lighting.
+    autoFlush: 0 # Fixes post lighting.
   patches:
     default:
       content: |-
