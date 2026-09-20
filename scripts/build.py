@@ -138,7 +138,50 @@ def get_mali_base_apk() -> Path:
     return MALI_FALLBACK_APK
 
 
-def inject_scale_multiplier(input_apk: Path, output_apk: Path, work_name: str) -> None:
+def remove_custom_controller_buttons(work_dir: Path) -> None:
+    # Delete all custom controller PNG button images from the APK
+    deleted = 0
+    for png in list(work_dir.rglob("ic_controller_*.png")):
+        png.unlink()
+        deleted += 1
+    print(f"Deleted {deleted} custom controller PNG images from {work_dir.name}")
+
+    # Restore clean original AetherSX2 vector XML buttons
+    drawable_og = REPO_ROOT / "old" / "scripts" / "theme" / "res" / "drawable-og"
+    if drawable_og.exists():
+        for res_dir in work_dir.rglob("res"):
+            if res_dir.is_dir():
+                dest_drawable = res_dir / "drawable"
+                dest_drawable.mkdir(parents=True, exist_ok=True)
+                for xml_file in drawable_og.glob("*.xml"):
+                    shutil.copyfile(xml_file, dest_drawable / xml_file.name)
+        print("Restored clean original AetherSX2 controller vector XML buttons.")
+
+
+def apply_mali_optimizations(work_dir: Path) -> None:
+    print("Applying exclusive Mali GPU performance optimizations...")
+    import re
+    for xml_file in work_dir.rglob("graphics_preferences.xml"):
+        text = xml_file.read_text(encoding="utf-8")
+        # Default GPU Renderer to Vulkan (14)
+        text = re.sub(
+            r'(<ListPreference\s+app:defaultValue=)"12"(\s+[^>]*app:key="EmuCore/GS/Renderer")',
+            r'\g<1>"14"\2',
+            text,
+            flags=re.DOTALL,
+        )
+        # Enable Threaded Presentation by default
+        text = re.sub(
+            r'(<SwitchPreferenceCompat\s+app:defaultValue=)"false"(\s+[^>]*app:key="EmuCore/GS/ThreadedPresentation")',
+            r'\g<1>"true"\2',
+            text,
+            flags=re.DOTALL,
+        )
+        xml_file.write_text(text, encoding="utf-8")
+        print(f"Configured Vulkan and Threaded Presentation defaults in {xml_file.name}")
+
+
+def inject_scale_multiplier(input_apk: Path, output_apk: Path, work_name: str, is_mali: bool = False) -> None:
     work_dir = REPO_ROOT / work_name
     if work_dir.exists():
         shutil.rmtree(work_dir)
@@ -146,6 +189,13 @@ def inject_scale_multiplier(input_apk: Path, output_apk: Path, work_name: str) -
     apkeditor = ensure_apkeditor()
     # Decode with -dex so classes.dex and native libraries are kept raw and resource IDs are preserved
     run_cmd(["java", "-jar", str(apkeditor), "d", "-dex", "-f", "-i", str(input_apk), "-o", str(work_dir)])
+
+    # Delete all custom controller PNG buttons entirely and restore clean original vector buttons
+    remove_custom_controller_buttons(work_dir)
+
+    # If building Mali APK, apply Mali-specific Vulkan and Threaded Presentation defaults
+    if is_mali:
+        apply_mali_optimizations(work_dir)
 
     # Patch resolution scale multiplier in arrays.xml
     sys.path.insert(0, str(PATCHES_DIR))
@@ -222,7 +272,7 @@ def build_mali() -> None:
     run_cmd([xdelta_bin, "-d", "-f", "-s", str(base_apk), str(MALI_CLASSIC_XDELTA), str(mali_nethersx2_base)])
 
     # Inject 0.25x scale multiplier and sign
-    inject_scale_multiplier(mali_nethersx2_base, MALI_FINAL_APK, "work_mali")
+    inject_scale_multiplier(mali_nethersx2_base, MALI_FINAL_APK, "work_mali", is_mali=True)
     if mali_nethersx2_base.exists():
         mali_nethersx2_base.unlink()
     print(f"Successfully built {MALI_FINAL_APK}")
@@ -239,7 +289,10 @@ def verify_all() -> None:
             arsc = z.read("resources.arsc")
             if b"0.250000" not in arsc or b"0.25" not in arsc:
                 raise SystemExit(f"ERROR: 0.25x render option missing in {apk.name}!")
-        print(f"✓ {apk.name}: 0.25x scale multiplier confirmed in resources.arsc")
+            custom_buttons = [n for n in z.namelist() if n.endswith(".png") and "ic_controller_" in n]
+            if custom_buttons:
+                raise SystemExit(f"ERROR: Custom controller buttons still found in {apk.name}: {custom_buttons}")
+        print(f"✓ {apk.name}: 0.25x confirmed & custom controller PNGs stripped")
 
     if not ADRENO_FINAL_XDELTA.exists() or ADRENO_FINAL_XDELTA.stat().st_size == 0:
         raise SystemExit(f"Missing or empty xdelta: {ADRENO_FINAL_XDELTA}")
