@@ -21,6 +21,28 @@ lib\xml ed -L -d "androidx.drawerlayout.widget.DrawerLayout/androidx.coordinator
 lib\xml ed -L -u "androidx.drawerlayout.widget.DrawerLayout/androidx.coordinatorlayout.widget.CoordinatorLayout/com.google.android.material.floatingactionbutton.FloatingActionButton/@android:layout_marginBottom" -v "16.0dip" "4248\res\layout\activity_main.xml"
 :: --End Main Activity Layout Cleanup--
 
+:: --Scale Multiplier--
+lib\xml ed -L -i "resources/string-array[@name='gs_upscale_entries'][not(item='0.25x Native')]/item[1]" -t elem -n "item" -v "0.25x Native" "4248\res\values\arrays.xml"
+lib\xml ed -L -i "resources/string-array[@name='gs_upscale_values'][not(item='0.250000')]/item[1]" -t elem -n "item" -v "0.250000" "4248\res\values\arrays.xml"
+lib\xml ed -L -i "resources/string-array[@name='gs_upscale_entries'][not(item='0.25x الدقة')]/item[1]" -t elem -n "item" -v "0.25x الدقة" "4248\res\values-ar-rSA\arrays.xml"
+lib\xml ed -L -i "resources/string-array[@name='gs_upscale_entries'][not(item='0.25x کوالێتی گرافیک')]/item[1]" -t elem -n "item" -v "0.25x کوالێتی گرافیک" "4248\res\values-ckb-rIR\arrays.xml"
+lib\xml ed -L -i "resources/string-array[@name='gs_upscale_entries'][not(item='0.25x Nativo')]/item[1]" -t elem -n "item" -v "0.25x Nativo" "4248\res\values-es-rES\arrays.xml"
+lib\xml ed -L -i "resources/string-array[@name='gs_upscale_entries'][not(item='0.25x Neytib')]/item[1]" -t elem -n "item" -v "0.25x Neytib" "4248\res\values-fil-rPH\arrays.xml"
+lib\xml ed -L -i "resources/string-array[@name='gs_upscale_entries'][not(item='0.25x Natif')]/item[1]" -t elem -n "item" -v "0.25x Natif" "4248\res\values-fr-rFR\arrays.xml"
+lib\xml ed -L -i "resources/string-array[@name='gs_upscale_entries'][not(item='Natív 0.25x')]/item[1]" -t elem -n "item" -v "Natív 0.25x" "4248\res\values-hu-rHU\arrays.xml"
+lib\xml ed -L -i "resources/string-array[@name='gs_upscale_entries'][not(item='0.25x Resolusi')]/item[1]" -t elem -n "item" -v "0.25x Resolusi" "4248\res\values-in-rID\arrays.xml"
+lib\xml ed -L -i "resources/string-array[@name='gs_upscale_entries'][not(item='0.25x Nativo')]/item[1]" -t elem -n "item" -v "0.25x Nativo" "4248\res\values-it-rIT\arrays.xml"
+lib\xml ed -L -i "resources/string-array[@name='gs_upscale_entries'][not(item='0.25x')]/item[1]" -t elem -n "item" -v "0.25x" "4248\res\values-ko-rKR\arrays.xml"
+lib\xml ed -L -i "resources/string-array[@name='gs_upscale_entries'][not(item='0.25x Origineel')]/item[1]" -t elem -n "item" -v "0.25x Origineel" "4248\res\values-nl-rNL\arrays.xml"
+lib\xml ed -L -i "resources/string-array[@name='gs_upscale_entries'][not(item='0,25x Nativa')]/item[1]" -t elem -n "item" -v "0,25x Nativa" "4248\res\values-pt-rBR\arrays.xml"
+lib\xml ed -L -i "resources/string-array[@name='gs_upscale_entries'][not(item='0.25x Nativo')]/item[1]" -t elem -n "item" -v "0.25x Nativo" "4248\res\values-pt-rPT\arrays.xml"
+lib\xml ed -L -i "resources/string-array[@name='gs_upscale_entries'][not(item='0.25x нативное')]/item[1]" -t elem -n "item" -v "0.25x нативное" "4248\res\values-ru-rRU\arrays.xml"
+lib\xml ed -L -i "resources/string-array[@name='gs_upscale_entries'][not(item='0,25x natívne')]/item[1]" -t elem -n "item" -v "0,25x natívne" "4248\res\values-sk-rSK\arrays.xml"
+lib\xml ed -L -i "resources/string-array[@name='gs_upscale_entries'][not(item='0.25x จากความละเอียดดั้งเดิม (~120p)')]/item[1]" -t elem -n "item" -v "0.25x จากความละเอียดดั้งเดิม (~120p)" "4248\res\values-th-rTH\arrays.xml"
+lib\xml ed -L -i "resources/string-array[@name='gs_upscale_entries'][not(item='0.25倍原生')]/item[1]" -t elem -n "item" -v "0.25倍原生" "4248\res\values-zh-rCN\arrays.xml"
+lib\xml ed -L -i "resources/string-array[@name='gs_upscale_entries'][not(item='0.25x 原生')]/item[1]" -t elem -n "item" -v "0.25x 原生" "4248\res\values-zh-rTW\arrays.xml"
+:: --End Scale Multiplier--
+
 :: --Patch Native Library--
 :: Patch signature checks
 lib\hexalter 4248\lib\arm64-v8a\libemucore.so 0x838560=0x66,0x00,0x00,0x14 0x83B324=0x62,0x00,0x00,0x14
