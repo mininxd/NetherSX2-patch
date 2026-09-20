@@ -116,12 +116,44 @@ def patch_arrays(res_dir: Path) -> int:
     return modified_files
 
 
+# Aarch64 instruction pattern in libemucore.so:
+# fmin s1, s0, s1: 01 58 21 1e
+# fmov s2, #0.5:   02 10 2c 1e
+# fcmp s0, s2:     00 20 22 1e
+# fcsel s0, s2, s1, mi: 40 4c 21 1e
+SCALE_CLAMP_PATTERN = b"\x01\x58\x21\x1e\x02\x10\x2c\x1e\x00\x20\x22\x1e\x40\x4c\x21\x1e"
+# Replacement replaces `fcsel s0, s2, s1, mi` (which clamps s0 to 0.5f if s0 < 0.5f)
+# with `fmov s0, s1` (20 40 20 1e), preserving requested sub-0.5x scaling (0.05x, 0.1x, 0.25x).
+SCALE_UNCLAMPED_REPLACEMENT = b"\x01\x58\x21\x1e\x02\x10\x2c\x1e\x00\x20\x22\x1e\x20\x40\x20\x1e"
+
+
+def patch_emucore_scale_clamp(decoded_dir: Path) -> int:
+    """Unclamp upscale_multiplier minimum in libemucore.so so sub-0.5x scaling actually renders."""
+    patched_count = 0
+    for so_path in decoded_dir.rglob("libemucore.so"):
+        data = bytearray(so_path.read_bytes())
+        count = data.count(SCALE_CLAMP_PATTERN)
+        if count == 1:
+            idx = data.index(SCALE_CLAMP_PATTERN)
+            data[idx : idx + len(SCALE_CLAMP_PATTERN)] = SCALE_UNCLAMPED_REPLACEMENT
+            so_path.write_bytes(data)
+            patched_count += 1
+            print(f"Patched and unclamped resolution scale in {so_path.name} at offset 0x{idx:x}")
+        elif SCALE_UNCLAMPED_REPLACEMENT in data:
+            print(f"{so_path.name} is already unclamped for sub-0.5x scaling")
+            patched_count += 1
+        else:
+            print(f"Warning: Scale clamp pattern not found in {so_path.name}")
+    return patched_count
+
+
 def patch_decoded_dir(decoded_dir: Path) -> int:
     res_dir = decoded_dir / "res"
     if not res_dir.exists():
         raise SystemExit(f"res directory not found in {decoded_dir}")
     modified_count = patch_arrays(res_dir)
     print(f"Patched resolution scale multipliers in {modified_count} array files.")
+    patch_emucore_scale_clamp(decoded_dir)
     return modified_count
 
 

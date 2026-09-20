@@ -251,14 +251,15 @@ def inject_scale_multiplier(input_apk: Path, output_apk: Path, work_name: str, i
     if is_mali:
         apply_mali_optimizations(work_dir)
 
-    # Patch resolution scale multiplier in arrays.xml
+    # Patch resolution scale multiplier in arrays.xml and libemucore.so
     sys.path.insert(0, str(PATCHES_DIR))
-    from patch_scale_multiplier import patch_arrays
+    from patch_scale_multiplier import patch_arrays, patch_emucore_scale_clamp
     modified = 0
     for res_dir in work_dir.rglob("res"):
         if res_dir.is_dir():
             modified += patch_arrays(res_dir)
     print(f"Patched resolution scales (0.05x, 0.1x, 0.25x) in {modified} arrays.xml files inside {work_name}")
+    patch_emucore_scale_clamp(work_dir)
 
     # Rebuild with APKEditor (preserves original resource IDs)
     raw_rebuilt = REPO_ROOT / f"{work_name}_rebuilt.apk"
@@ -344,13 +345,17 @@ def verify_all() -> None:
             for scale_val in [b"0.050000", b"0.100000", b"0.250000"]:
                 if scale_val not in arsc:
                     raise SystemExit(f"ERROR: {scale_val.decode()} render option missing in {apk.name}!")
+            so_bytes = z.read("lib/arm64-v8a/libemucore.so")
+            patched_pattern = b"\x01\x58\x21\x1e\x02\x10\x2c\x1e\x00\x20\x22\x1e\x20\x40\x20\x1e"
+            if patched_pattern not in so_bytes:
+                raise SystemExit(f"ERROR: libemucore.so in {apk.name} still has 0.5f minimum clamp!")
             custom_buttons = [n for n in z.namelist() if n.endswith(".png") and "ic_controller_" in n]
             if custom_buttons:
                 raise SystemExit(f"ERROR: Custom controller buttons still found in {apk.name}: {custom_buttons}")
             xml_buttons = [n for n in z.namelist() if n.startswith("res/drawable/ic_controller_") and n.endswith(".xml")]
             if len(xml_buttons) != 34:
                 raise SystemExit(f"ERROR: Expected 34 original controller XML buttons, found {len(xml_buttons)} in {apk.name}!")
-        print(f"✓ {apk.name}: 0.05x, 0.1x, 0.25x confirmed & original controller XML buttons verified (no custom PNGs)")
+        print(f"✓ {apk.name}: 0.05x, 0.1x, 0.25x (XML + unclamped libemucore.so) & original controller XML buttons verified")
 
     if not ADRENO_FINAL_XDELTA.exists() or ADRENO_FINAL_XDELTA.stat().st_size == 0:
         raise SystemExit(f"Missing or empty xdelta: {ADRENO_FINAL_XDELTA}")
