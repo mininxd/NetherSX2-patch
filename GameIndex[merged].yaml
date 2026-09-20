@@ -10095,8 +10095,19 @@ SCUS-97177:
   region: "NTSC-U"
   compat: 5
   gsHWFixes:
-    autoFlush: 1 # Fixes speed effect intensity.
+    autoFlush: 0 # Fixes speed effect intensity.
     minimumBlendingLevel: 2 # Fixes cloud depth rendering.
+  patches:
+    default:
+      content: |-
+        author=Community
+        comment=Disable Sun and Lens Flare Post-processing
+        patch=1,EE,0029DBA5,byte,0
+    5AE01D98:
+      content: |-
+        author=Community
+        comment=Disable Sun and Lens Flare Post-processing
+        patch=1,EE,0029DBA5,byte,0
 SCUS-97178:
   name: "NFL GameDay 2002"
   region: "NTSC-U"
@@ -18498,7 +18509,7 @@ SLES-52202:
   region: "PAL-M5"
   compat: 5
   gsHWFixes:
-    autoFlush: 1 # Fixes speed effect intensity.
+    autoFlush: 0 # Fixes speed effect intensity.
     minimumBlendingLevel: 2 # Fixes cloud depth rendering.
 SLES-52203:
   name: "Silent Line - Armored Core"

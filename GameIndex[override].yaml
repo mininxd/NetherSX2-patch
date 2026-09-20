@@ -352,3 +352,26 @@ SLUS-21376:
     vuClampMode: 1
   gsHWFixes:
     autoFlush: 0
+SCUS-97177:
+  name: "Downhill Domination"
+  compat: 5
+  gsHWFixes:
+    autoFlush: 0
+    minimumBlendingLevel: 2
+  patches:
+    default:
+      content: |-
+        author=Community
+        comment=Disable Sun and Lens Flare Post-processing
+        patch=1,EE,0029DBA5,byte,0
+    5AE01D98:
+      content: |-
+        author=Community
+        comment=Disable Sun and Lens Flare Post-processing
+        patch=1,EE,0029DBA5,byte,0
+SLES-52202:
+  name: "Downhill Domination"
+  compat: 5
+  gsHWFixes:
+    autoFlush: 0
+    minimumBlendingLevel: 2

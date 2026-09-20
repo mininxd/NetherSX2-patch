@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import shutil
 import subprocess
 import sys
 import urllib.request
 import zipfile
+import zlib
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -236,9 +238,6 @@ def apply_mali_optimizations(work_dir: Path) -> None:
 
     # Customize ONLY the Setup Wizard preset button text: change Fast/Unsafe to Fast(Mali)/Unsafe,
     # keeping the original descriptions and reset setting text untouched.
-    import hashlib
-    import zlib
-
     str_updated = 0
     for p in work_dir.rglob("strings.xml"):
         text = p.read_text(encoding="utf-8")
@@ -263,9 +262,33 @@ def apply_mali_optimizations(work_dir: Path) -> None:
             dex_path.write_bytes(dex_data)
             print(f"  ✓ Patched {dex_path.name} to default Setup Wizard preset to 'Fast(Mali)/Unsafe Defaults'")
 
-    # Patch GameIndex.yaml to disable autoFlush (which causes catastrophic TBDR tile stalls on Mali)
-    # and reduce VU clamp mode from Extra (3) to Normal (1) for Black
+
+def patch_gameindex(work_dir: Path) -> None:
+    """Patch GameIndex.yaml inside decoded APK:
+    1. Black: Disable autoFlush (1 -> 0) and reduce VU clamp mode from Extra (3) to Normal (1).
+    2. Downhill Domination: Disable sun lighting / lens flare post-processing effect and disable autoFlush (1 -> 0).
+    """
+    downhill_patch = """  patches:
+    default:
+      content: |-
+        author=Community
+        comment=Disable Sun and Lens Flare Post-processing
+        patch=1,EE,0029DBA5,byte,0
+    5AE01D98:
+      content: |-
+        author=Community
+        comment=Disable Sun and Lens Flare Post-processing
+        patch=1,EE,0029DBA5,byte,0
+"""
     black_serials = ["SLAJ-25078", "SLES-53886", "SLES-54030", "SLPM-66354", "SLUS-21376"]
+
+    def patch_downhill_scus(m: re.Match) -> str:
+        block = m.group(0)
+        block = re.sub(r"(autoFlush:\s*)1", r"\g<1>0", block)
+        if "patches:" not in block:
+            block = block.rstrip() + "\n" + downhill_patch
+        return block
+
     gi_updated = 0
     for p in work_dir.rglob("GameIndex.yaml"):
         text = p.read_text(encoding="utf-8")
@@ -275,10 +298,19 @@ def apply_mali_optimizations(work_dir: Path) -> None:
             text = re.sub(pattern_af, r"\g<1>0", text, flags=re.DOTALL)
             pattern_vu = rf"({s}:.*?\n\s*name:\s*[\"\x27]Black[\"\x27].*?vuClampMode:\s*)3"
             text = re.sub(pattern_vu, r"\g<1>1", text, flags=re.DOTALL)
+
+        # Patch Downhill Domination SCUS-97177 (NTSC-U) with sun disable patch and autoFlush 0
+        text = re.sub(r"SCUS-97177:.*?(?=\n[A-Z]{4}-[0-9]{5}:|\Z)", patch_downhill_scus, text, flags=re.DOTALL)
+
+        # Disable autoFlush for other Downhill Domination releases (PAL and Demos)
+        for s in ["SLES-52202", "SCUS-97329", "SLED-52325"]:
+            pattern_dh = rf"({s}:.*?\n\s*name:\s*[\"\x27]Downhill Domination.*?autoFlush:\s*)1"
+            text = re.sub(pattern_dh, r"\g<1>0", text, flags=re.DOTALL)
+
         if text != orig:
             p.write_text(text, encoding="utf-8")
             gi_updated += 1
-    print(f"  ✓ Patched GameIndex.yaml (disabled autoFlush & reduced VU clamp for Black in {gi_updated} files)")
+    print(f"  ✓ Patched GameIndex.yaml (optimized Black & Downhill Domination in {gi_updated} files)")
 
 
 def inject_scale_multiplier(input_apk: Path, output_apk: Path, work_name: str, is_mali: bool = False) -> None:
@@ -292,6 +324,9 @@ def inject_scale_multiplier(input_apk: Path, output_apk: Path, work_name: str, i
 
     # Delete all custom controller PNG buttons entirely and restore clean original vector buttons
     remove_custom_controller_buttons(work_dir)
+
+    # Patch GameIndex.yaml with database optimizations (Black, Downhill Domination)
+    patch_gameindex(work_dir)
 
     # If building Mali APK, apply Mali-specific Vulkan and Threaded Presentation defaults
     if is_mali:
