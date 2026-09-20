@@ -272,6 +272,23 @@ def apply_mali_optimizations(work_dir: Path) -> None:
             dex_path.write_bytes(dex_data)
             print(f"  ✓ Patched {dex_path.name} to default Setup Wizard preset to 'Fast Mode (Mali Edition)'")
 
+    # Patch GameIndex.yaml to disable autoFlush (which causes catastrophic TBDR tile stalls on Mali)
+    # and reduce VU clamp mode from Extra (3) to Normal (1) for Black
+    black_serials = ["SLAJ-25078", "SLES-53886", "SLES-54030", "SLPM-66354", "SLUS-21376"]
+    gi_updated = 0
+    for p in work_dir.rglob("GameIndex.yaml"):
+        text = p.read_text(encoding="utf-8")
+        orig = text
+        for s in black_serials:
+            pattern_af = rf"({s}:.*?\n\s*name:\s*[\"\x27]Black[\"\x27].*?autoFlush:\s*)1"
+            text = re.sub(pattern_af, r"\g<1>0", text, flags=re.DOTALL)
+            pattern_vu = rf"({s}:.*?\n\s*name:\s*[\"\x27]Black[\"\x27].*?vuClampMode:\s*)3"
+            text = re.sub(pattern_vu, r"\g<1>1", text, flags=re.DOTALL)
+        if text != orig:
+            p.write_text(text, encoding="utf-8")
+            gi_updated += 1
+    print(f"  ✓ Patched GameIndex.yaml (disabled autoFlush & reduced VU clamp for Black in {gi_updated} files)")
+
 
 def inject_scale_multiplier(input_apk: Path, output_apk: Path, work_name: str, is_mali: bool = False) -> None:
     work_dir = REPO_ROOT / work_name

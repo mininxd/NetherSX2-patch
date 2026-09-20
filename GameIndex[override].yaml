@@ -322,3 +322,33 @@ SLUS-21386:
         comment=Black Grid & No Bloom fixes
         patch=1,EE,205E570C,extended,00000000
         patch=1,EE,0011A668,word,00000000
+SLAJ-25078:
+  name: "Black"
+  clampModes:
+    vuClampMode: 1
+  gsHWFixes:
+    autoFlush: 0
+SLES-53886:
+  name: "Black"
+  clampModes:
+    vuClampMode: 1
+  gsHWFixes:
+    autoFlush: 0
+SLES-54030:
+  name: "Black"
+  clampModes:
+    vuClampMode: 1
+  gsHWFixes:
+    autoFlush: 0
+SLPM-66354:
+  name: "Black"
+  clampModes:
+    vuClampMode: 1
+  gsHWFixes:
+    autoFlush: 0
+SLUS-21376:
+  name: "Black"
+  clampModes:
+    vuClampMode: 1
+  gsHWFixes:
+    autoFlush: 0
