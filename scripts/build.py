@@ -174,8 +174,11 @@ def apply_mali_optimizations(work_dir: Path) -> None:
                 tag = m.group(0)
                 if "app:defaultValue=" in tag:
                     return re.sub(r'app:defaultValue="[^"]*"', f'app:defaultValue="{new_val}"', tag)
-                else:
-                    return tag[:-1].rstrip() + f' app:defaultValue="{new_val}">' if tag.endswith(">") else tag
+                elif tag.endswith("/>"):
+                    return tag[:-2].rstrip() + f' app:defaultValue="{new_val}" />'
+                elif tag.endswith(">"):
+                    return tag[:-1].rstrip() + f' app:defaultValue="{new_val}">'
+                return tag
 
             pattern = re.compile(rf'<[^>]+app:key="{re.escape(key)}"[^>]*>', re.DOTALL)
             text = pattern.sub(replace_default, text)
@@ -185,8 +188,9 @@ def apply_mali_optimizations(work_dir: Path) -> None:
         return 0
 
     gfx_updates = {
-        "EmuCore/GS/Renderer": "14",               # Default to Vulkan backend
+        "EmuCore/GS/Renderer": "14",               # Default to Vulkan backend (direct command buffer on Mali)
         "EmuCore/GS/ThreadedPresentation": "true",  # Decouple frame presentation thread
+        "EmuCore/GS/HWDownloadMode": "1",          # Disable Readbacks (eliminates TBDR tile flush stalls on Mali-G57)
     }
     adv_updates = {
         "EmuCore/GS/DisableDualSourceBlend": "true", # Fix Mali driver dual-source blending bottlenecks
@@ -198,9 +202,31 @@ def apply_mali_optimizations(work_dir: Path) -> None:
         "EmuCore/Speedhacks/fastCDVD": "true",        # Fast CDVD read speeds
     }
 
+    # Inject global HWDownloadMode into graphics_preferences.xml if absent
+    for p in work_dir.rglob("graphics_preferences.xml"):
+        text = p.read_text(encoding="utf-8")
+        if "EmuCore/GS/HWDownloadMode" not in text:
+            hw_download_tag = """    <ListPreference app:defaultValue="1"
+                    app:entries="@array/gs_hardware_download_mode_entries"
+                    app:entryValues="@array/gs_hardware_download_mode_values"
+                    app:iconSpaceReserved="false"
+                    app:key="EmuCore/GS/HWDownloadMode"
+                    app:title="@string/gs_hardware_download_mode"
+                    app:useSimpleSummaryProvider="true" />
+  </PreferenceCategory>"""
+            text = re.sub(
+                r'(<ListPreference[^>]+app:key="EmuCore/GS/texture_preloading"[^>]*>[\s\n]*)(</PreferenceCategory>)',
+                r'\g<1>' + hw_download_tag,
+                text,
+            )
+            p.write_text(text, encoding="utf-8")
+
     for p in work_dir.rglob("graphics_preferences.xml"):
         if update_preference_xml(p, gfx_updates):
-            print(f"  ✓ Configured Vulkan (14) and Threaded Presentation in {p.name}")
+            print(f"  ✓ Configured Vulkan (14), Threaded Presentation, and HWDownloadMode (1) in {p.name}")
+    for p in work_dir.rglob("graphics_game_settings_preferences.xml"):
+        if update_preference_xml(p, {"EmuCore/GS/HWDownloadMode": "1"}):
+            print(f"  ✓ Defaulted HWDownloadMode (1 - Disable Readbacks) in {p.name}")
     for p in work_dir.rglob("advanced_preferences.xml"):
         if update_preference_xml(p, adv_updates):
             print(f"  ✓ Configured DisableDualSourceBlend and SkipDuplicateFrames in {p.name}")
