@@ -284,23 +284,37 @@ def apply_mali_optimizations(work_dir: Path) -> None:
             dex_path.write_bytes(dex_data)
 
     # Patch NativeLibrary.setDefaultSettings in libemucore.so:
-    # When 'unsafe' preset is applied, set HWDownloadMode to '1' (Disable Readbacks - Unsynchronized)
-    # instead of '2' (Synchronize GS Thread)
-    so_pattern = bytes.fromhex("82c7ff9042541591e00313aae10314aae30316aa00013fd6")
-    so_replacement = bytes.fromhex("82c7ff9042541591e00313aae10314aae30317aa00013fd6")
+    # 1. When 'unsafe' preset is applied, set HWDownloadMode to '1' (Disable Readbacks - Unsynchronized)
+    # 2. Keep EECycleSkip at '0' (Normal) instead of '2' (Cycle Skip 2) to eliminate animation jitter,
+    #    black screens, and visual glitches in Black and other games.
+    so_pattern_hw = bytes.fromhex("82c7ff9042541591e00313aae10314aae30316aa00013fd6")
+    so_replacement_hw = bytes.fromhex("82c7ff9042541591e00313aae10314aae30317aa00013fd6")
+
+    so_pattern_skip = bytes.fromhex("5911899a7611899ae00313aa") # csel x25, x10, x9; csel x22, x11, x9; mov x0, x19
+    so_replacement_skip = bytes.fromhex("5911899af60309aae00313aa") # csel x25, x10, x9; mov x22, x9; mov x0, x19
+
     for so_path in work_dir.rglob("libemucore.so"):
         so_data = bytearray(so_path.read_bytes())
-        if so_pattern in so_data:
-            idx = so_data.index(so_pattern)
-            so_data[idx:idx+len(so_pattern)] = so_replacement
-            so_path.write_bytes(so_data)
+        so_modified = False
+        if so_pattern_hw in so_data:
+            idx = so_data.index(so_pattern_hw)
+            so_data[idx:idx+len(so_pattern_hw)] = so_replacement_hw
+            so_modified = True
             print(f"  ✓ Patched {so_path.name} setDefaultSettings to set HWDownloadMode=1 (Unsynchronized)")
+        if so_pattern_skip in so_data:
+            idx = so_data.index(so_pattern_skip)
+            so_data[idx:idx+len(so_pattern_skip)] = so_replacement_skip
+            so_modified = True
+            print(f"  ✓ Patched {so_path.name} setDefaultSettings to keep EECycleSkip=0 (Normal) in Unsafe mode")
+        if so_modified:
+            so_path.write_bytes(so_data)
 
 
 def patch_gameindex(work_dir: Path) -> None:
     """Patch GameIndex.yaml inside decoded APK:
-    1. Black: Disable autoFlush (1 -> 0) and reduce VU clamp mode from Extra (3) to Normal (1).
+    1. Black: Ensure vuClampMode: 3 (fixes SPS polygon spikes), autoFlush: 1 (fixes light strips), and minimumBlendingLevel: 2.
     2. Downhill Domination: Disable sun lighting / lens flare post-processing effect and disable autoFlush (1 -> 0).
+    3. Tales of the Abyss: Disable autoFlush (1 -> 0) to prevent TBDR tile flush stalls.
     """
     downhill_patch = """  patches:
     default:
@@ -314,7 +328,7 @@ def patch_gameindex(work_dir: Path) -> None:
         comment=Disable Sun and Lens Flare Post-processing
         patch=1,EE,0029DBA5,byte,0
 """
-    black_serials = ["SLAJ-25078", "SLES-53886", "SLES-54030", "SLPM-66354", "SLUS-21376"]
+    black_serials = ["SLAJ-25078", "SLES-53886", "SLES-54030", "SLPM-66354", "SLUS-21376", "SLKA-25372"]
 
     def patch_downhill_scus(m: re.Match) -> str:
         block = m.group(0)
@@ -328,10 +342,15 @@ def patch_gameindex(work_dir: Path) -> None:
         text = p.read_text(encoding="utf-8")
         orig = text
         for s in black_serials:
-            pattern_af = rf"({s}:.*?\n\s*name:\s*[\"\x27]Black[\"\x27].*?autoFlush:\s*)1"
-            text = re.sub(pattern_af, r"\g<1>0", text, flags=re.DOTALL)
-            pattern_vu = rf"({s}:.*?\n\s*name:\s*[\"\x27]Black[\"\x27].*?vuClampMode:\s*)3"
-            text = re.sub(pattern_vu, r"\g<1>1", text, flags=re.DOTALL)
+            # Ensure vuClampMode is 3 (fixes SPS polygon explosion)
+            pattern_vu = rf"({s}:.*?\n\s*name:\s*[\"\x27]Black[\"\x27].*?vuClampMode:\s*)[0-2]"
+            text = re.sub(pattern_vu, r"\g<1>3", text, flags=re.DOTALL)
+            # Ensure autoFlush is 1 (fixes light strips and missing sky)
+            pattern_af = rf"({s}:.*?\n\s*name:\s*[\"\x27]Black[\"\x27].*?autoFlush:\s*)0"
+            text = re.sub(pattern_af, r"\g<1>1", text, flags=re.DOTALL)
+            # Ensure minimumBlendingLevel: 2 is present in Black's gsHWFixes
+            pattern_blend = rf"({s}:.*?\n\s*name:\s*[\"\x27]Black[\"\x27].*?gsHWFixes:\s*\n)(?!\s*minimumBlendingLevel:)"
+            text = re.sub(pattern_blend, r"\g<1>    minimumBlendingLevel: 2 # Fixes building and object lighting.\n", text, flags=re.DOTALL)
 
         # Patch Downhill Domination SCUS-97177 (NTSC-U) with sun disable patch and autoFlush 0
         text = re.sub(r"SCUS-97177:.*?(?=\n[A-Z]{4}-[0-9]{5}:|\Z)", patch_downhill_scus, text, flags=re.DOTALL)

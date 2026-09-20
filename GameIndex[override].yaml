@@ -324,34 +324,69 @@ SLUS-21386:
         patch=1,EE,0011A668,word,00000000
 SLAJ-25078:
   name: "Black"
+  compat: 5
   clampModes:
-    vuClampMode: 1
+    vuClampMode: 3 # Fixes SPS.
   gsHWFixes:
-    autoFlush: 0
+    autoFlush: 1 # Properly diffuses light instead of strips of light.
+    roundSprite: 1 # Fixes lighting misalignment such as the street poles and the sun.
+    minimumBlendingLevel: 2 # Fixes building and object lighting with Minimum global blend.
+    mipmap: 2 # Fixes over sharpening.
+    trilinearFiltering: 1 # Smoothes out mipmapping.
+    getSkipCount: "GSC_BlackAndBurnoutSky"
+    beforeDraw: "OI_BurnoutGames"
 SLES-53886:
   name: "Black"
+  compat: 5
   clampModes:
-    vuClampMode: 1
+    vuClampMode: 3
   gsHWFixes:
-    autoFlush: 0
+    autoFlush: 1
+    roundSprite: 1
+    minimumBlendingLevel: 2
+    mipmap: 2
+    trilinearFiltering: 1
+    getSkipCount: "GSC_BlackAndBurnoutSky"
+    beforeDraw: "OI_BurnoutGames"
 SLES-54030:
   name: "Black"
+  compat: 5
   clampModes:
-    vuClampMode: 1
+    vuClampMode: 3
   gsHWFixes:
-    autoFlush: 0
+    autoFlush: 1
+    roundSprite: 1
+    minimumBlendingLevel: 2
+    mipmap: 2
+    trilinearFiltering: 1
+    getSkipCount: "GSC_BlackAndBurnoutSky"
+    beforeDraw: "OI_BurnoutGames"
 SLPM-66354:
   name: "Black"
+  compat: 5
   clampModes:
-    vuClampMode: 1
+    vuClampMode: 3
   gsHWFixes:
-    autoFlush: 0
+    autoFlush: 1
+    roundSprite: 1
+    minimumBlendingLevel: 2
+    mipmap: 2
+    trilinearFiltering: 1
+    getSkipCount: "GSC_BlackAndBurnoutSky"
+    beforeDraw: "OI_BurnoutGames"
 SLUS-21376:
   name: "Black"
+  compat: 5
   clampModes:
-    vuClampMode: 1
+    vuClampMode: 3
   gsHWFixes:
-    autoFlush: 0
+    autoFlush: 1
+    roundSprite: 1
+    minimumBlendingLevel: 2
+    mipmap: 2
+    trilinearFiltering: 1
+    getSkipCount: "GSC_BlackAndBurnoutSky"
+    beforeDraw: "OI_BurnoutGames"
 SCUS-97177:
   name: "Downhill Domination"
   compat: 5
