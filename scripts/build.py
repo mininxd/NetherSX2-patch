@@ -149,13 +149,16 @@ def inject_scale_multiplier(input_apk: Path, output_apk: Path, work_name: str) -
 
     # Patch resolution scale multiplier in arrays.xml
     sys.path.insert(0, str(PATCHES_DIR))
-    import patch_scale_multiplier
-    modified = patch_scale_multiplier.patch_arrays(work_dir / "res")
+    from patch_scale_multiplier import patch_arrays
+    modified = 0
+    for res_dir in work_dir.rglob("res"):
+        if res_dir.is_dir():
+            modified += patch_arrays(res_dir)
     print(f"Patched 0.25x scale in {modified} arrays.xml files inside {work_name}")
 
     # Rebuild with APKEditor (preserves original resource IDs)
     raw_rebuilt = REPO_ROOT / f"{work_name}_rebuilt.apk"
-    run_cmd(["java", "-jar", str(apkeditor), "b", "-f", "-i", str(work_dir), "-o", str(raw_rebuilt)])
+    run_cmd(["java", "-jar", str(apkeditor), "b", "-framework-version", "34", "-f", "-i", str(work_dir), "-o", str(raw_rebuilt)])
 
     # Zipalign
     aligned = REPO_ROOT / f"{work_name}_aligned.apk"
