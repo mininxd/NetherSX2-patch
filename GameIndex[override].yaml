@@ -412,3 +412,140 @@ SLES-52202:
   gsHWFixes:
     autoFlush: 0
     minimumBlendingLevel: 2
+SLUS-21355:
+  name: "Midnight Club 3 - DUB Edition Remix"
+  compat: 5
+  gsHWFixes:
+    preloadFrameData: 1
+    textureInsideRT: 1
+    halfPixelOffset: 2
+  patches:
+    default:
+      content: |-
+        author=Community
+        comment=Disable Motion Blur
+        patch=1,EE,201CC3D4,extended,00000000
+        patch=1,EE,201CC3D8,extended,00000000
+        patch=1,EE,201CC3E0,extended,00000000
+        patch=1,EE,201CC3E8,extended,00000000
+        patch=1,EE,201CC38C,extended,00000000
+        patch=1,EE,201CC39C,extended,00000000
+    60A42FF5:
+      content: |-
+        comment=Patch by Refraction & Community
+        // Fixes slow speed in MTVU
+        patch=1,EE,D052907C,extended,00000800
+        patch=1,EE,2052907C,extended,00000000
+        // Disable Motion Blur
+        patch=1,EE,201CC3D4,extended,00000000
+        patch=1,EE,201CC3D8,extended,00000000
+        patch=1,EE,201CC3E0,extended,00000000
+        patch=1,EE,201CC3E8,extended,00000000
+        patch=1,EE,201CC38C,extended,00000000
+        patch=1,EE,201CC39C,extended,00000000
+SLUS-21029:
+  name: "Midnight Club 3 - DUB Edition"
+  compat: 5
+  gsHWFixes:
+    preloadFrameData: 1
+    textureInsideRT: 1
+    halfPixelOffset: 2
+  patches:
+    default:
+      content: |-
+        author=Community
+        comment=Disable Motion Blur
+        patch=1,EE,201CC3D4,extended,00000000
+        patch=1,EE,201CC3D8,extended,00000000
+        patch=1,EE,201CC3E0,extended,00000000
+        patch=1,EE,201CC3E8,extended,00000000
+        patch=1,EE,201CC38C,extended,00000000
+        patch=1,EE,201CC39C,extended,00000000
+    0DD3417A:
+      content: |-
+        comment=Patch by Refraction & Community
+        // Fixes slow speed in MTVU
+        patch=1,EE,D0525B3C,extended,00000800
+        patch=1,EE,20525B3C,extended,00000000
+        // Disable Motion Blur
+        patch=1,EE,201CC3D4,extended,00000000
+        patch=1,EE,201CC3D8,extended,00000000
+        patch=1,EE,201CC3E0,extended,00000000
+        patch=1,EE,201CC3E8,extended,00000000
+        patch=1,EE,201CC38C,extended,00000000
+        patch=1,EE,201CC39C,extended,00000000
+    4A0E5B3A:
+      content: |-
+        comment=Patch by Refraction & Community
+        // Fixes slow speed in MTVU
+        patch=1,EE,D05257FC,extended,00000800
+        patch=1,EE,205257FC,extended,00000000
+        // Disable Motion Blur
+        patch=1,EE,201CC3D4,extended,00000000
+        patch=1,EE,201CC3D8,extended,00000000
+        patch=1,EE,201CC3E0,extended,00000000
+        patch=1,EE,201CC3E8,extended,00000000
+        patch=1,EE,201CC38C,extended,00000000
+        patch=1,EE,201CC39C,extended,00000000
+SLES-53717:
+  name: "Midnight Club 3 - DUB Edition Remix"
+  compat: 5
+  gsHWFixes:
+    preloadFrameData: 1
+    textureInsideRT: 1
+    halfPixelOffset: 2
+  patches:
+    default:
+      content: |-
+        author=Community
+        comment=Disable Motion Blur
+        patch=1,EE,201CC3D4,extended,00000000
+        patch=1,EE,201CC3D8,extended,00000000
+        patch=1,EE,201CC3E0,extended,00000000
+        patch=1,EE,201CC3E8,extended,00000000
+        patch=1,EE,201CC38C,extended,00000000
+        patch=1,EE,201CC39C,extended,00000000
+    208183AF:
+      content: |-
+        comment=Patch by Refraction & Community
+        // Fixes slow speed in MTVU
+        patch=1,EE,D0529074,extended,00000800
+        patch=1,EE,20529074,extended,00000000
+        // Disable Motion Blur
+        patch=1,EE,201CC3D4,extended,00000000
+        patch=1,EE,201CC3D8,extended,00000000
+        patch=1,EE,201CC3E0,extended,00000000
+        patch=1,EE,201CC3E8,extended,00000000
+        patch=1,EE,201CC38C,extended,00000000
+        patch=1,EE,201CC39C,extended,00000000
+SLES-52942:
+  name: "Midnight Club 3 - DUB Edition"
+  compat: 5
+  gsHWFixes:
+    preloadFrameData: 1
+    textureInsideRT: 1
+    halfPixelOffset: 2
+  patches:
+    default:
+      content: |-
+        author=Community
+        comment=Disable Motion Blur
+        patch=1,EE,201CC3D4,extended,00000000
+        patch=1,EE,201CC3D8,extended,00000000
+        patch=1,EE,201CC3E0,extended,00000000
+        patch=1,EE,201CC3E8,extended,00000000
+        patch=1,EE,201CC38C,extended,00000000
+        patch=1,EE,201CC39C,extended,00000000
+    EBE1972D:
+      content: |-
+        comment=Patch by Refraction, Prafull & Community
+        // Fixes slow speed in MTVU
+        patch=1,EE,D0525A1C,extended,00000800
+        patch=1,EE,20525A1C,extended,00000000
+        // Disable Motion Blur
+        patch=1,EE,201CC3D4,extended,00000000
+        patch=1,EE,201CC3D8,extended,00000000
+        patch=1,EE,201CC3E0,extended,00000000
+        patch=1,EE,201CC3E8,extended,00000000
+        patch=1,EE,201CC38C,extended,00000000
+        patch=1,EE,201CC39C,extended,00000000

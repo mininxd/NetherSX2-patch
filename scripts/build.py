@@ -197,7 +197,7 @@ def apply_mali_optimizations(work_dir: Path) -> None:
         "EmuCore/GS/texture_preloading": "2",        # Full Texture Hash Cache (keeps decoded textures resident in RAM)
     }
     adv_updates = {
-        "EmuCore/GS/DisableDualSourceBlend": "false", # Enable hardware dual-source blending (unlocked in native core)
+        "EmuCore/GS/DisableDualSourceBlend": "true", # Fix Mali driver dual-source blending bottlenecks
         "EmuCore/GS/SkipDuplicateFrames": "true",    # Conserve tile memory bandwidth on Mali TBDR
     }
     sys_updates = {
@@ -370,10 +370,28 @@ def patch_gameindex(work_dir: Path) -> None:
             pattern_tales = rf"({s}:.*?\n\s*name:\s*[\"\x27]Tales of the Abyss.*?autoFlush:\s*)1"
             text = re.sub(pattern_tales, r"\g<1>0", text, flags=re.DOTALL)
 
+        # Patch Midnight Club 3 (SLUS-21355, SLUS-21029, SLES-53717, SLES-52942) to disable motion blur
+        mc3_blur_patch = """        // Disable Motion Blur (eliminates Mali TBDR fillrate lag and blur accumulation)
+        patch=1,EE,201CC3D4,extended,00000000
+        patch=1,EE,201CC3D8,extended,00000000
+        patch=1,EE,201CC3E0,extended,00000000
+        patch=1,EE,201CC3E8,extended,00000000
+        patch=1,EE,201CC38C,extended,00000000
+        patch=1,EE,201CC39C,extended,00000000"""
+
+        def patch_mc3_block(m: re.Match) -> str:
+            block = m.group(0)
+            if "201CC3D4" not in block:
+                block = re.sub(r"(patch=1,EE,2052[0-9A-F]{4},extended,00000000)", r"\g<1>\n" + mc3_blur_patch, block)
+            return block
+
+        for s in ["SLUS-21355", "SLUS-21029", "SLES-53717", "SLES-52942"]:
+            text = re.sub(rf"({s}:.*?\n)(?=[A-Z]{{4}}-[0-9]{{5}}:|\Z)", patch_mc3_block, text, flags=re.DOTALL)
+
         if text != orig:
             p.write_text(text, encoding="utf-8")
             gi_updated += 1
-    print(f"  ✓ Patched GameIndex.yaml (optimized Black, Downhill Domination, and Tales of the Abyss in {gi_updated} files)")
+    print(f"  ✓ Patched GameIndex.yaml (optimized Black, Downhill Domination, Tales of the Abyss, and Midnight Club 3 in {gi_updated} files)")
 
 
 def inject_scale_multiplier(input_apk: Path, output_apk: Path, work_name: str, is_mali: bool = False) -> None:
