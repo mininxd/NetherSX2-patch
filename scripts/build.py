@@ -394,6 +394,41 @@ def patch_gameindex(work_dir: Path) -> None:
     print(f"  ✓ Patched GameIndex.yaml (optimized Black, Downhill Domination, Tales of the Abyss, and Midnight Club 3 in {gi_updated} files)")
 
 
+def patch_manifest_target_sdk(work_dir: Path, target_sdk: int = 34) -> None:
+    """Update AndroidManifest.xml targetSdkVersion and compileSdkVersion to modern Android standards (API 34)."""
+    manifest_path = work_dir / "AndroidManifest.xml"
+    if not manifest_path.exists():
+        return
+    text = manifest_path.read_text(encoding="utf-8")
+    orig = text
+
+    # Update android:targetSdkVersion
+    if 'android:targetSdkVersion=' in text:
+        text = re.sub(r'android:targetSdkVersion="[0-9]+"', f'android:targetSdkVersion="{target_sdk}"', text)
+    elif '<uses-sdk' in text:
+        text = re.sub(r'(<uses-sdk\b[^>]*?)(\s*/>|>)', rf'\g<1> android:targetSdkVersion="{target_sdk}"\g<2>', text)
+
+    # Update compileSdkVersion and platformBuildVersionCode so Android 14/15 does not see legacy build versions
+    text = re.sub(r'android:compileSdkVersion="[0-9]+"', f'android:compileSdkVersion="{target_sdk}"', text)
+    text = re.sub(r'android:compileSdkVersionCodename="[^"]+"', f'android:compileSdkVersionCodename="{target_sdk}"', text)
+    text = re.sub(r'platformBuildVersionCode="[0-9]+"', f'platformBuildVersionCode="{target_sdk}"', text)
+    text = re.sub(r'platformBuildVersionName="[^"]+"', f'platformBuildVersionName="{target_sdk}"', text)
+
+    for json_file in work_dir.glob("*.json"):
+        try:
+            jtext = json_file.read_text(encoding="utf-8")
+            jtext_mod = re.sub(r'("targetSdkVersion"\s*:\s*)[0-9]+', rf'\g<1>{target_sdk}', jtext)
+            jtext_mod = re.sub(r'("target_sdk_version"\s*:\s*)[0-9]+', rf'\g<1>{target_sdk}', jtext_mod)
+            if jtext_mod != jtext:
+                json_file.write_text(jtext_mod, encoding="utf-8")
+        except Exception:
+            pass
+
+    if text != orig:
+        manifest_path.write_text(text, encoding="utf-8")
+        print(f"  ✓ Patched AndroidManifest.xml: targetSdkVersion={target_sdk}, compileSdkVersion={target_sdk}")
+
+
 def inject_scale_multiplier(input_apk: Path, output_apk: Path, work_name: str, is_mali: bool = False) -> None:
     work_dir = REPO_ROOT / work_name
     if work_dir.exists():
@@ -412,6 +447,9 @@ def inject_scale_multiplier(input_apk: Path, output_apk: Path, work_name: str, i
     # If building Mali APK, apply Mali-specific Vulkan and Threaded Presentation defaults
     if is_mali:
         apply_mali_optimizations(work_dir)
+
+    # Patch targetSdkVersion and compileSdkVersion to Android 14 (API 34) for full Android 15 compatibility
+    patch_manifest_target_sdk(work_dir, target_sdk=34)
 
     # Patch resolution scale multiplier in arrays.xml and libemucore.so
     sys.path.insert(0, str(PATCHES_DIR))
@@ -524,7 +562,11 @@ def verify_all() -> None:
                 raise SystemExit(f"ERROR: Expected 34 original controller XML buttons, found {len(xml_buttons)} in {apk.name}!")
             if apk == MALI_FINAL_APK and b"Fast(Mali)/Unsafe Defaults" not in arsc:
                 raise SystemExit(f"ERROR: 'Fast(Mali)/Unsafe Defaults' missing in {apk.name} resources.arsc!")
-        print(f"✓ {apk.name}: 0.05x, 0.1x, 0.25x (XML + unclamped libemucore.so) & original controller XML buttons verified")
+            if shutil.which("aapt"):
+                out = subprocess.check_output(["aapt", "dump", "badging", str(apk)]).decode("utf-8", errors="ignore")
+                if "targetSdkVersion:'34'" not in out:
+                    raise SystemExit(f"ERROR: targetSdkVersion is not 34 in {apk.name}!")
+        print(f"✓ {apk.name}: 0.05x, 0.1x, 0.25x (XML + unclamped libemucore.so) & targetSdkVersion 34 verified")
 
     if not ADRENO_FINAL_XDELTA.exists() or ADRENO_FINAL_XDELTA.stat().st_size == 0:
         raise SystemExit(f"Missing or empty xdelta: {ADRENO_FINAL_XDELTA}")
