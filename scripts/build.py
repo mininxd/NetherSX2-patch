@@ -414,23 +414,59 @@ def apply_switch_optimizations(work_dir: Path) -> None:
 
 
 def patch_preserve_user_data_on_reset(work_dir: Path) -> None:
-    """Patch NativeLibrary.setDefaultSettings in libemucore.so:
+    """Patch NativeLibrary.setDefaultSettings and ApplyPerformancePreset in libemucore.so:
     Prevent resetting core, memory cards, achievements, and input bindings when resetting to Optimal or Fast defaults.
-    Replaces:
-      mov w2, #1 (reset_core = true)  -> mov w2, wzr (reset_core = false)
-      mov w3, #1 (reset_input = true) -> mov w3, wzr (reset_input = false)
-    Ensures that applying performance presets never wipes memory cards, RetroAchievements login/settings, or custom controls.
+    
+    Patches both Call 1 (in setDefaultSettings) and Call 2 (in ApplyPerformancePreset):
+    1. v1.5-4248 (Adreno & Switch):
+       - Call 1 at 0x840f48: mov w2, wzr; mov w3, wzr; NOP bl 0x7ea840
+       - Call 2 at 0x840fd4: mov w2, wzr; NOP bl 0x7ea840
+    2. v1.5-3668 (Mali):
+       - Call 1 at 0x833c58: mov w2, wzr; mov w3, wzr; NOP bl 0x7dfa20
+       - Call 2 at 0x833ce4: mov w2, wzr; NOP bl 0x7dfa20
+    
+    This completely eliminates the wipe of MemoryCards, RetroAchievements login/tokens/settings,
+    and custom controller mappings when applying performance presets.
     """
-    pattern = bytes.fromhex("e1031f2a2200805223008052e4031f2ae5031f2a")
-    replacement = bytes.fromhex("e1031f2ae2031f2ae3031f2ae4031f2ae5031f2a")
+    call1_4248_target = bytes.fromhex("e1031f2a2200805223008052e4031f2ae5031f2a39a6fe97")
+    call1_4248_patch  = bytes.fromhex("e1031f2ae2031f2ae3031f2ae4031f2ae5031f2a1f2003d5")
+
+    call2_4248_target = bytes.fromhex("e1031f2a22008052e3031f2ae4031f2ae5031f2a16a6fe97")
+    call2_4248_patch  = bytes.fromhex("e1031f2ae2031f2ae3031f2ae4031f2ae5031f2a1f2003d5")
+
+    call1_3668_target = bytes.fromhex("e1031f2a2200805223008052e4031f2ae5031f2a6daffe97")
+    call1_3668_patch  = bytes.fromhex("e1031f2ae2031f2ae3031f2ae4031f2ae5031f2a1f2003d5")
+
+    call2_3668_target = bytes.fromhex("e1031f2a22008052e3031f2ae4031f2ae5031f2a4aaffe97")
+    call2_3668_patch  = bytes.fromhex("e1031f2ae2031f2ae3031f2ae4031f2ae5031f2a1f2003d5")
 
     for so_path in work_dir.rglob("libemucore.so"):
         so_data = bytearray(so_path.read_bytes())
-        if pattern in so_data:
-            idx = so_data.index(pattern)
-            so_data[idx:idx+len(pattern)] = replacement
+        patches_applied = 0
+
+        # Patch Call 1
+        if call1_4248_target in so_data:
+            idx = so_data.index(call1_4248_target)
+            so_data[idx:idx+len(call1_4248_target)] = call1_4248_patch
+            patches_applied += 1
+        elif call1_3668_target in so_data:
+            idx = so_data.index(call1_3668_target)
+            so_data[idx:idx+len(call1_3668_target)] = call1_3668_patch
+            patches_applied += 1
+
+        # Patch Call 2
+        if call2_4248_target in so_data:
+            idx = so_data.index(call2_4248_target)
+            so_data[idx:idx+len(call2_4248_target)] = call2_4248_patch
+            patches_applied += 1
+        elif call2_3668_target in so_data:
+            idx = so_data.index(call2_3668_target)
+            so_data[idx:idx+len(call2_3668_target)] = call2_3668_patch
+            patches_applied += 1
+
+        if patches_applied > 0:
             so_path.write_bytes(so_data)
-            print(f"  ✓ Patched {so_path.name} setDefaultSettings to preserve memory cards, achievements, and controls on reset")
+            print(f"  ✓ Patched {so_path.name} ({patches_applied} calls patched): Memory cards, achievements, and controls preserved on reset")
 
 
 def patch_gameindex(work_dir: Path) -> None:
