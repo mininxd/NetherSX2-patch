@@ -397,13 +397,15 @@ SCUS-97177:
     default:
       content: |-
         author=Community
-        comment=Disable Sun and Lens Flare Post-processing
+        comment=Disable Sun, Lens Flare Post-processing, and Stage Backdrop
         patch=1,EE,0029DBA5,byte,0
+        patch=1,EE,0029E200,byte,0
     5AE01D98:
       content: |-
         author=Community
-        comment=Disable Sun and Lens Flare Post-processing
+        comment=Disable Sun, Lens Flare Post-processing, and Stage Backdrop
         patch=1,EE,0029DBA5,byte,0
+        patch=1,EE,0029E200,byte,0
 SLES-52202:
   name: "Downhill Domination"
   compat: 5

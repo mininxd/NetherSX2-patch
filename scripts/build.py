@@ -313,20 +313,22 @@ def apply_mali_optimizations(work_dir: Path) -> None:
 def patch_gameindex(work_dir: Path) -> None:
     """Patch GameIndex.yaml inside decoded APK:
     1. Black: Ensure vuClampMode: 3 (fixes SPS polygon spikes), autoFlush: 1 (fixes light strips), and minimumBlendingLevel: 2.
-    2. Downhill Domination: Disable sun lighting / lens flare post-processing effect and disable autoFlush (1 -> 0).
+    2. Downhill Domination: Disable sun lighting / lens flare post-processing and stage backdrop, and disable autoFlush (1 -> 0).
     3. Tales of the Abyss: Disable autoFlush (1 -> 0) to prevent TBDR tile flush stalls.
     """
     downhill_patch = """  patches:
     default:
       content: |-
         author=Community
-        comment=Disable Sun and Lens Flare Post-processing
+        comment=Disable Sun, Lens Flare Post-processing, and Stage Backdrop
         patch=1,EE,0029DBA5,byte,0
+        patch=1,EE,0029E200,byte,0
     5AE01D98:
       content: |-
         author=Community
-        comment=Disable Sun and Lens Flare Post-processing
+        comment=Disable Sun, Lens Flare Post-processing, and Stage Backdrop
         patch=1,EE,0029DBA5,byte,0
+        patch=1,EE,0029E200,byte,0
 """
     black_serials = ["SLAJ-25078", "SLES-53886", "SLES-54030", "SLPM-66354", "SLUS-21376", "SLKA-25372"]
 
@@ -335,6 +337,9 @@ def patch_gameindex(work_dir: Path) -> None:
         block = re.sub(r"(autoFlush:\s*)1", r"\g<1>0", block)
         if "patches:" not in block:
             block = block.rstrip() + "\n" + downhill_patch
+        else:
+            if "0029E200" not in block:
+                block = block.replace("patch=1,EE,0029DBA5,byte,0", "patch=1,EE,0029DBA5,byte,0\n        patch=1,EE,0029E200,byte,0")
         return block
 
     gi_updated = 0
