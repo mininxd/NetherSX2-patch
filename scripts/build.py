@@ -35,6 +35,9 @@ MALI_CLASSIC_XDELTA_URL = "https://github.com/Trixarian/NetherSX2-classic/releas
 MALI_CLASSIC_XDELTA = REPO_ROOT / "nethersx2-classic.xdelta"
 MALI_FINAL_APK = REPO_ROOT / "xyz.aethersx2.android_mali.apk"
 
+# Switch paths (Nvidia Tegra X1 / Maxwell GM20B)
+SWITCH_FINAL_APK = REPO_ROOT / "xyz.aethersx2.android_switch.apk"
+
 # Tools
 APKEDITOR_JAR = DECOMP_LIB / "APKEditor.jar"
 APKEDITOR_URL = "https://github.com/REAndroid/APKEditor/releases/download/V1.4.9/APKEditor-1.4.9.jar"
@@ -310,6 +313,126 @@ def apply_mali_optimizations(work_dir: Path) -> None:
             so_path.write_bytes(so_data)
 
 
+def apply_switch_optimizations(work_dir: Path) -> None:
+    """Apply optimizations specifically for Nintendo Switch (Nvidia Tegra X1 / Maxwell 256 CUDA cores):
+    1. Vulkan backend (14) - direct command buffer execution on Nvidia's desktop-grade Vulkan driver.
+    2. DisableDualSourceBlend: "false" - Enable hardware dual-source blending (Maxwell architecture executes desktop dual-source blending natively).
+    3. ThreadedPresentation: "true" - Decouples presentation thread to eliminate frame pacing jitter on Cortex-A57 CPU cores.
+    4. HWDownloadMode: "1" - Disable Readbacks (Unsynchronized) to stop CPU/GPU synchronization wait-states.
+    5. MTVU (vuThread: "true") - Offloads VU1 to separate thread, utilizing the Switch's 4 cores.
+    6. EECycleRate: "-1" (75% Underclock) - Prevents audio crackle and thermal throttling on the Switch's 1.0-1.7 GHz CPU.
+    7. Fast CDVD (fastCDVD: "true") - Faster game streaming and asset loading.
+    8. AffinityControlMode: "0" - No core pinning, letting Linux CFS distribute load across all 4 A57 cores.
+    """
+    def update_preference_xml(file_path: Path, updates: dict[str, str]) -> int:
+        if not file_path.exists():
+            return 0
+        text = file_path.read_text(encoding="utf-8")
+        original = text
+        for key, new_val in updates.items():
+            def replace_default(match: re.Match) -> str:
+                tag = match.group(0)
+                if 'app:defaultValue="' in tag:
+                    return re.sub(r'app:defaultValue="[^"]*"', f'app:defaultValue="{new_val}"', tag)
+                elif tag.endswith("/>"):
+                    return tag[:-2].rstrip() + f' app:defaultValue="{new_val}" />'
+                elif tag.endswith(">"):
+                    return tag[:-1].rstrip() + f' app:defaultValue="{new_val}">'
+                return tag
+
+            pattern = re.compile(rf'<[^>]+app:key="{re.escape(key)}"[^>]*>', re.DOTALL)
+            text = pattern.sub(replace_default, text)
+        if text != original:
+            file_path.write_text(text, encoding="utf-8")
+            return 1
+        return 0
+
+    gfx_updates = {
+        "EmuCore/GS/Renderer": "14",                 # Vulkan
+        "EmuCore/GS/ThreadedPresentation": "true",    # Threaded presentation (huge on 4-core A57)
+        "EmuCore/GS/HWDownloadMode": "1",            # Disable Readbacks (Unsynchronized)
+        "EmuCore/GS/accurate_blending_unit": "1",    # Basic Blending (Maxwell hardware handles blending effortlessly)
+        "EmuCore/GS/texture_preloading": "2",        # Full Texture Hash Cache
+    }
+    adv_updates = {
+        "EmuCore/GS/DisableDualSourceBlend": "false", # Maxwell GM20B has native hardware dual-source blending!
+        "EmuCore/GS/SkipDuplicateFrames": "false",
+    }
+    sys_updates = {
+        "EmuCore/Speedhacks/vuThread": "true",        # MTVU (vital for 4 A57 cores)
+        "EmuCore/Speedhacks/EECycleRate": "-1",       # 75% EE Underclock (matches Switch CPU clock headroom)
+        "EmuCore/Speedhacks/fastCDVD": "true",        # Fast CDVD
+        "EmuCore/AffinityControlMode": "0",           # Normal affinity for Tegra X1
+    }
+
+    # Inject global HWDownloadMode into graphics_preferences.xml if absent
+    for p in work_dir.rglob("graphics_preferences.xml"):
+        text = p.read_text(encoding="utf-8")
+        if "EmuCore/GS/HWDownloadMode" not in text:
+            hw_download_tag = """    <ListPreference app:defaultValue="1"
+                    app:entries="@array/gs_hardware_download_mode_entries"
+                    app:entryValues="@array/gs_hardware_download_mode_values"
+                    app:iconSpaceReserved="false"
+                    app:key="EmuCore/GS/HWDownloadMode"
+                    app:title="@string/gs_hardware_download_mode"
+                    app:useSimpleSummaryProvider="true" />
+  </PreferenceCategory>"""
+            text = re.sub(
+                r'(<ListPreference[^>]+app:key="EmuCore/GS/texture_preloading"[^>]*>[\s\n]*)(</PreferenceCategory>)',
+                r'\g<1>' + hw_download_tag,
+                text,
+            )
+            p.write_text(text, encoding="utf-8")
+
+    for p in work_dir.rglob("graphics_preferences.xml"):
+        if update_preference_xml(p, gfx_updates):
+            print(f"  ✓ Configured Switch Tegra X1 graphics in {p.name}")
+    for p in work_dir.rglob("graphics_game_settings_preferences.xml"):
+        if update_preference_xml(p, {
+            "EmuCore/GS/HWDownloadMode": "1",
+            "EmuCore/GS/accurate_blending_unit": "1",
+            "EmuCore/GS/texture_preloading": "2",
+        }):
+            print(f"  ✓ Defaulted HWDownloadMode (1), Blending Accuracy (1), and Texture Preload (2) in {p.name}")
+    for p in work_dir.rglob("advanced_preferences.xml"):
+        if update_preference_xml(p, adv_updates):
+            print(f"  ✓ Enabled hardware Dual-Source Blend for Tegra X1 Maxwell in {p.name}")
+    for p in work_dir.rglob("system_preferences.xml"):
+        if update_preference_xml(p, sys_updates):
+            print(f"  ✓ Configured MTVU, -1 EE Cycle Rate, and FastCDVD for Switch in {p.name}")
+
+    # Customize Setup Wizard preset text for Switch
+    str_updated = 0
+    for p in work_dir.rglob("strings.xml"):
+        text = p.read_text(encoding="utf-8")
+        original = text
+        text = re.sub(r'(<string name="setup_wizard_safe_defaults">)[^<]+(</string>)', r'\g<1>Switch(Tegra X1) Defaults\g<2>', text)
+        if text != original:
+            p.write_text(text, encoding="utf-8")
+            str_updated += 1
+    print(f"  ✓ Updated Setup Wizard preset button to 'Switch(Tegra X1) Defaults' in {str_updated} strings.xml files")
+
+
+def patch_preserve_user_data_on_reset(work_dir: Path) -> None:
+    """Patch NativeLibrary.setDefaultSettings in libemucore.so:
+    Prevent resetting core, memory cards, achievements, and input bindings when resetting to Optimal or Fast defaults.
+    Replaces:
+      mov w2, #1 (reset_core = true)  -> mov w2, wzr (reset_core = false)
+      mov w3, #1 (reset_input = true) -> mov w3, wzr (reset_input = false)
+    Ensures that applying performance presets never wipes memory cards, RetroAchievements login/settings, or custom controls.
+    """
+    pattern = bytes.fromhex("e1031f2a2200805223008052e4031f2ae5031f2a")
+    replacement = bytes.fromhex("e1031f2ae2031f2ae3031f2ae4031f2ae5031f2a")
+
+    for so_path in work_dir.rglob("libemucore.so"):
+        so_data = bytearray(so_path.read_bytes())
+        if pattern in so_data:
+            idx = so_data.index(pattern)
+            so_data[idx:idx+len(pattern)] = replacement
+            so_path.write_bytes(so_data)
+            print(f"  ✓ Patched {so_path.name} setDefaultSettings to preserve memory cards, achievements, and controls on reset")
+
+
 def patch_gameindex(work_dir: Path) -> None:
     """Patch GameIndex.yaml inside decoded APK:
     1. Black: Ensure vuClampMode: 3 (fixes SPS polygon spikes), autoFlush: 1 (fixes light strips), and minimumBlendingLevel: 2.
@@ -429,7 +552,7 @@ def patch_manifest_target_sdk(work_dir: Path, target_sdk: int = 34) -> None:
         print(f"  ✓ Patched AndroidManifest.xml: targetSdkVersion={target_sdk}, compileSdkVersion={target_sdk}")
 
 
-def inject_scale_multiplier(input_apk: Path, output_apk: Path, work_name: str, is_mali: bool = False) -> None:
+def inject_scale_multiplier(input_apk: Path, output_apk: Path, work_name: str, is_mali: bool = False, is_switch: bool = False) -> None:
     work_dir = REPO_ROOT / work_name
     if work_dir.exists():
         shutil.rmtree(work_dir)
@@ -444,9 +567,14 @@ def inject_scale_multiplier(input_apk: Path, output_apk: Path, work_name: str, i
     # Patch GameIndex.yaml with database optimizations (Black, Downhill Domination)
     patch_gameindex(work_dir)
 
-    # If building Mali APK, apply Mali-specific Vulkan and Threaded Presentation defaults
+    # If building Mali or Switch APK, apply device-specific defaults
     if is_mali:
         apply_mali_optimizations(work_dir)
+    elif is_switch:
+        apply_switch_optimizations(work_dir)
+
+    # Preserve user data (Memory Cards, RetroAchievements login & settings, controller mappings) when resetting defaults
+    patch_preserve_user_data_on_reset(work_dir)
 
     # Patch targetSdkVersion and compileSdkVersion to Android 14 (API 34) for full Android 15 compatibility
     patch_manifest_target_sdk(work_dir, target_sdk=34)
@@ -535,11 +663,31 @@ def build_mali() -> None:
     print(f"Successfully built {MALI_FINAL_APK}")
 
 
+def build_switch() -> None:
+    print("\n==========================================")
+    print("Building NetherSX2 Nintendo Switch (Tegra X1) APK")
+    print("==========================================")
+    base_apk = get_adreno_base_apk()
+    xdelta_bin = get_xdelta_bin()
+
+    if not ADRENO_NETHERSX2_XDELTA.exists():
+        raise SystemExit(f"Adreno NetherSX2 xdelta patch not found: {ADRENO_NETHERSX2_XDELTA}")
+
+    switch_nethersx2_base = REPO_ROOT / "switch_nethersx2_base.apk"
+    run_cmd([xdelta_bin, "-d", "-f", "-s", str(base_apk), str(ADRENO_NETHERSX2_XDELTA), str(switch_nethersx2_base)])
+
+    inject_scale_multiplier(switch_nethersx2_base, SWITCH_FINAL_APK, "work_switch", is_switch=True)
+    if switch_nethersx2_base.exists():
+        switch_nethersx2_base.unlink()
+    shutil.copyfile(SWITCH_FINAL_APK, REPO_ROOT / "nethersx2_switch.apk")
+    print(f"Successfully built {SWITCH_FINAL_APK}")
+
+
 def verify_all() -> None:
     print("\n==========================================")
     print("Verifying built artifacts...")
     print("==========================================")
-    for apk in [ADRENO_FINAL_APK, MALI_FINAL_APK]:
+    for apk in [ADRENO_FINAL_APK, MALI_FINAL_APK, SWITCH_FINAL_APK]:
         if not apk.exists():
             raise SystemExit(f"Missing output APK: {apk}")
         with zipfile.ZipFile(apk) as z:
@@ -562,6 +710,8 @@ def verify_all() -> None:
                 raise SystemExit(f"ERROR: Expected 34 original controller XML buttons, found {len(xml_buttons)} in {apk.name}!")
             if apk == MALI_FINAL_APK and b"Fast(Mali)/Unsafe Defaults" not in arsc:
                 raise SystemExit(f"ERROR: 'Fast(Mali)/Unsafe Defaults' missing in {apk.name} resources.arsc!")
+            if apk == SWITCH_FINAL_APK and b"Switch(Tegra X1) Defaults" not in arsc:
+                raise SystemExit(f"ERROR: 'Switch(Tegra X1) Defaults' missing in {apk.name} resources.arsc!")
             if shutil.which("aapt"):
                 out = subprocess.check_output(["aapt", "dump", "badging", str(apk)]).decode("utf-8", errors="ignore")
                 if "targetSdkVersion:'34'" not in out:
@@ -577,6 +727,7 @@ def verify_all() -> None:
 def main() -> None:
     build_adreno()
     build_mali()
+    build_switch()
     verify_all()
 
 

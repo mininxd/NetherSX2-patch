@@ -48,6 +48,13 @@ jobs:
           path: xyz.aethersx2.android_mali.apk
           if-no-files-found: error
 
+      - name: Upload Switch APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: xyz.aethersx2.android_switch.apk
+          path: xyz.aethersx2.android_switch.apk
+          if-no-files-found: error
+
       - name: Upload xdelta
         uses: actions/upload-artifact@v4
         with:
